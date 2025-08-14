@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+setup.cfg
+src/tau_community_detection/__init__.py
+src/tau_community_detection/script.py
+src/tau_community_detection.egg-info/PKG-INFO
+src/tau_community_detection.egg-info/SOURCES.txt
+src/tau_community_detection.egg-info/dependency_links.txt
+src/tau_community_detection.egg-info/entry_points.txt
+src/tau_community_detection.egg-info/requires.txt
+src/tau_community_detection.egg-info/top_level.txt
+tests/teststuff.py

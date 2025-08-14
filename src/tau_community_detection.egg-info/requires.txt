@@ -1,0 +1,4 @@
+networkx==3.5
+numpy==1.26.4
+python-igraph==0.11.9
+pandas==2.2.2
