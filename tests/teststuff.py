@@ -12,9 +12,11 @@ sys.path.append(script_dir)
 from script import run_clustering
 
 if __name__ == '__main__':
-    # Now call with weighted parameter
-    tau_comms, tau_mod = run_clustering(
-        'Usoskin_graph.csv',
-        graph_name="example",
-        weighted=True  # This should work now
-    )
+# Open Usoskingraph.csv as a weighted graph using igraph
+    g = ig.Graph.Read_Ncol("Usoskingraph.csv", weights=True, directed=False)
+    print(g.summary())
+    # Run Leiden community detection on the graph
+    partition = g.community_leiden(objective_function='modularity', weights='weight')
+    print(f"Number of communities found: {len(partition)}")
+    print("Community membership for each node:")
+    print(partition.membership)

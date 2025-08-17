@@ -25,9 +25,10 @@ POOL = None           # Persistent multiprocessing Pool
 SIM_SAMPLE_SIZE = None
 SIM_INDICES = None
 
-def init_worker(path):
-    global G_ig
+def init_worker(path, resolution=1.0):
+    global G_ig, RESOLUTION
     G_ig = load_graph(path)
+    RESOLUTION = resolution
 
 
 class Partition:
@@ -58,7 +59,8 @@ class Partition:
         subsample_partition_memb = np.zeros(self.n_nodes) - 1
         subsample_nodes = [v.index for v in subgraph.vs]
         # leiden on subgraph
-        subsample_subpartition = subgraph.community_leiden(objective_function='modularity')
+        subsample_subpartition = subgraph.community_leiden(objective_function='modularity', resolution_parameter=RESOLUTION)
+
         subsample_subpartition_memb = subsample_subpartition.membership
         subsample_partition_memb[subsample_nodes] = subsample_subpartition_memb
         first_available_comm_id = np.max(subsample_subpartition_memb) + 1
@@ -71,7 +73,7 @@ class Partition:
     def optimize(self):
         # leiden
         partition = G_ig.community_leiden(objective_function='modularity', initial_membership=self.membership,
-                                          n_iterations=3)
+                                          n_iterations=3, resolution_parameter=RESOLUTION)
         self.membership = partition.membership
         self.n_comms = np.max(self.membership) + 1
         self.fitness = partition.modularity
@@ -357,11 +359,13 @@ N_IMMIGRANTS = -1
 N_ELITE = -1
 SELECTION_POWER = 5
 PROBS = []
+RESOLUTION = 1.0
 p_elite = .1
 p_immigrants = .15
 stopping_criterion_generations = 10
 stopping_criterion_jaccard = .98
 elite_similarity_threshold = .9
+
 
 if __name__ == "__main__":
     # parse script parameters
@@ -371,8 +375,9 @@ if __name__ == "__main__":
     parser.add_argument('--size', type=int, default=60, help='size of population; default is 60')
     parser.add_argument('--workers', type=int, default=-1, help='number of workers; '
                                                                 'default is number of available CPUs')
-    parser.add_argument('--max_generations', type=int, default=500, help='maximum number of generations to run;'
-                                                                         ' default is 500')
+    parser.add_argument('--max_generations', type=int, default=500, help='maximum number of generations to run')
+    parser.add_argument('--resolution', type=float, default=1.0, help='determines size of communities')
+    args = parser.parse_args()
     args = parser.parse_args()
 
     # set global variable values
@@ -384,9 +389,10 @@ if __name__ == "__main__":
     POPULATION_SIZE = population_size
     MAX_GENERATIONS = args.max_generations
     GRAPH_PATH = args.graph
+    RESOLUTION = args.resolution
     # Initialize graph and worker pool
     G_ig = load_graph(GRAPH_PATH)
-    POOL = Pool(N_WORKERS, initializer=init_worker, initargs=(GRAPH_PATH,))
+    POOL = Pool(N_WORKERS, initializer=init_worker, initargs=(GRAPH_PATH, RESOLUTION))
     # Optional: set SIM_SAMPLE_SIZE for large graphs (uncomment)
     SIM_SAMPLE_SIZE = 20000
     if G_ig.vcount() > SIM_SAMPLE_SIZE:
@@ -397,6 +403,8 @@ if __name__ == "__main__":
     best_partition, mod_history = find_partition()
     np.save(f'TAU_partition_{args.graph}.npy', best_partition.membership)
     print("Best modularity:", best_partition.fitness)
+
+
 
     # Clean up pool
     POOL.close()

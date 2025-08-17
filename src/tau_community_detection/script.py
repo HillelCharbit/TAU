@@ -25,9 +25,10 @@ POOL = None           # Persistent multiprocessing Pool
 SIM_SAMPLE_SIZE = None
 SIM_INDICES = None
 
-def init_worker(path):
-    global G_ig
+def init_worker(path, resolution=1.0):
+    global G_ig, RESOLUTION
     G_ig = load_graph(path)
+    RESOLUTION = resolution
 
 
 class Partition:
@@ -58,7 +59,7 @@ class Partition:
         subsample_partition_memb = np.zeros(self.n_nodes) - 1
         subsample_nodes = [v.index for v in subgraph.vs]
         # leiden on subgraph
-        subsample_subpartition = subgraph.community_leiden(objective_function='modularity', resolution=RESOLUTION)
+        subsample_subpartition = subgraph.community_leiden(objective_function='modularity', resolution_parameter=RESOLUTION)
         subsample_subpartition_memb = subsample_subpartition.membership
         subsample_partition_memb[subsample_nodes] = subsample_subpartition_memb
         first_available_comm_id = np.max(subsample_subpartition_memb) + 1
@@ -71,7 +72,7 @@ class Partition:
     def optimize(self):
         # leiden
         partition = G_ig.community_leiden(objective_function='modularity', initial_membership=self.membership,
-                                          n_iterations=3, resolution=RESOLUTION)
+                                          n_iterations=3, resolution_parameter=RESOLUTION)
         self.membership = partition.membership
         self.n_comms = np.max(self.membership) + 1
         self.fitness = partition.modularity
@@ -362,7 +363,7 @@ N_IMMIGRANTS = -1
 N_ELITE = -1
 SELECTION_POWER = 5
 PROBS = []
-RESOLUTION = 1
+RESOLUTION = 1.0
 p_elite = .1
 p_immigrants = .15
 stopping_criterion_generations = 10
@@ -372,6 +373,7 @@ elite_similarity_threshold = .9
 def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=500, workers=-1, seed=None, resolution=1):
     global POPULATION_SIZE, MAX_GENERATIONS, GRAPH_PATH
     global N_WORKERS, PROBS, N_ELITE, N_IMMIGRANTS, SIM_INDICES, G_ig, POOL
+    global RESOLUTION
 
     temp_path = None  # temp file path if needed
 
@@ -407,7 +409,7 @@ def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=5
 
     # Load graph in master process (for sampling) and in workers
     G_ig = load_graph(GRAPH_PATH)
-    POOL = Pool(N_WORKERS, initializer=init_worker, initargs=(GRAPH_PATH,))
+    POOL = Pool(N_WORKERS, initializer=init_worker, initargs=(GRAPH_PATH, RESOLUTION))
 
     # Optional sampling indices
     SIM_SAMPLE_SIZE = 20000
@@ -419,7 +421,6 @@ def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=5
     best_partition, mod_history = find_partition()
     np.save(f'TAU_partition_{graph_name}.npy', best_partition.membership)
     print("Best modularity:", best_partition.fitness)
-    
     POOL.close()
     POOL.join()
     
