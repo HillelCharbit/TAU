@@ -2,6 +2,7 @@ import numpy as np
 import networkx as nx
 import igraph as ig
 from sklearn.metrics.cluster import pair_confusion_matrix
+import pandas as pd
 import time
 import os
 import random
@@ -17,7 +18,7 @@ except RuntimeError:
 
 # ---------------------- Global Variables ----------------------
 G_ig = None           # Global igraph Graph
-GRAPH_PATH = None     # Path to adjacency-list file for worker initializer
+GRAPH = None     # Path to adjacency-list file for worker initializer
 pop = []              # Current population of Partition instances
 POOL = None           # Persistent multiprocessing Pool
 
@@ -59,7 +60,9 @@ class Partition:
         subsample_partition_memb = np.zeros(self.n_nodes) - 1
         subsample_nodes = [v.index for v in subgraph.vs]
         # leiden on subgraph
-        subsample_subpartition = subgraph.community_leiden(objective_function='modularity', resolution_parameter=RESOLUTION)
+        # Use weights if the subgraph has a 'weight' attribute, else None
+        weights = 'weight' if 'weight' in subgraph.edge_attributes() else None
+        subsample_subpartition = subgraph.community_leiden(objective_function='modularity', resolution_parameter=RESOLUTION, weights=weights)
         subsample_subpartition_memb = subsample_subpartition.membership
         subsample_partition_memb[subsample_nodes] = subsample_subpartition_memb
         first_available_comm_id = np.max(subsample_subpartition_memb) + 1
@@ -71,8 +74,10 @@ class Partition:
 
     def optimize(self):
         # leiden
+        # Use weights if the subgraph has a 'weight' attribute, else None
+        weights = 'weight' if 'weight' in G_ig.edge_attributes() else None
         partition = G_ig.community_leiden(objective_function='modularity', initial_membership=self.membership,
-                                          n_iterations=3, resolution_parameter=RESOLUTION)
+                                          n_iterations=3, resolution_parameter=RESOLUTION, weights=weights)
         self.membership = partition.membership
         self.n_comms = np.max(self.membership) + 1
         self.fitness = partition.modularity
@@ -125,57 +130,64 @@ class Partition:
 def flip_coin():
     return random.uniform(0, 1) > .5
 
-
-def load_graph(source):
+def load_graph(source, weighted=False):
     """
     Load a graph from various formats into an undirected igraph.Graph.
-
-    Parameters:
-        source (str | networkx.Graph | pandas.DataFrame): Input source path or object.
-
-    Returns:
-        igraph.Graph: The loaded undirected graph.
+    Ensures an edge attribute 'weight' always exists (defaults to 1.0).
     """
     if isinstance(source, str):
         path = source.lower()
 
-        # .graph format as adjacency list (e.g. "1 2 3" means node 1 connects to 2 and 3)
         if path.endswith(".graph"):
-            nx_graph = nx.read_adjlist(path)
+            nx_graph = nx.read_adjlist(source)
             mapping = dict(zip(nx_graph.nodes(), range(nx_graph.number_of_nodes())))
             nx_graph = nx.relabel_nodes(nx_graph, mapping)
-            ig_graph = ig.Graph(len(nx_graph), list(zip(*list(zip(*nx.to_edgelist(nx_graph)))[:2])))
-            return ig_graph
+            ig_graph = ig.Graph(len(nx_graph),
+                                list(zip(*list(zip(*nx.to_edgelist(nx_graph)))[:2])),
+                                directed=False)
+            if not weighted:
+                return ig_graph
 
-        # .csv format
         elif path.endswith(".csv"):
-            import pandas as pd
             df = pd.read_csv(source)
             edges = list(zip(df.iloc[:, 0], df.iloc[:, 1]))
-            return ig.Graph(edges=edges, directed=False)
+            ig_graph = ig.Graph(edges=edges, directed=False)
+            # if there is a 3rd column, use it as weight
+            if df.shape[1] >= 3:
+                ig_graph.es["weight"] = df.iloc[:, 2].astype(float).tolist()
 
-        # .adjlist or .txt interpreted as networkx adjacency list
         elif path.endswith(".adjlist") or path.endswith(".txt"):
             nx_graph = nx.read_adjlist(source, create_using=nx.Graph(), nodetype=int)
             return load_graph(nx_graph)
-
+        
         else:
             raise ValueError(f"Unsupported file format: {source}")
 
-    # networkx graph object
     elif isinstance(source, nx.Graph):
-        G = nx.convert_node_labels_to_integers(source)
-        edges = list(G.edges())
-        ig_graph = ig.Graph(edges=edges, directed=False)
-        return ig_graph
+        ig_graph = ig.Graph(len(source),
+                    list(zip(*list(zip(*nx.to_edgelist(source)))[:2])),
+                                directed=False)
 
-    # pandas dataframe interpreted as edge list
+        if weighted:
+            weights = [float(source[u][v].get("weight", 1.0)) for (u, v) in edges]
+            ig_graph.es["weight"] = weights
+
     elif "pandas" in str(type(source)):
         edges = list(zip(source.iloc[:, 0], source.iloc[:, 1]))
-        return ig.Graph(edges=edges, directed=False)
+        ig_graph = ig.Graph(edges=edges, directed=False)
+        if source.shape[1] >= 3:
+            ig_graph.es["weight"] = source.iloc[:, 2].astype(float).tolist()
 
     else:
         raise TypeError("Unsupported input type for graph loading.")
+
+    # ✅ ensure every edge has a weight
+    if weighted and "weight" not in ig_graph.es.attribute_names():
+        ig_graph.es["weight"] = [1.0] * ig_graph.ecount()
+
+
+    return ig_graph
+
 
 
 def overlap(partition_memberships):
@@ -347,9 +359,9 @@ def find_partition():
         offspring = POOL.map(mutate_individual, offspring)
         pop = elite + offspring + immigrants
 
-        print(f'Generation {generation_i} Top fitness: {best_fit:.5f}; Average fitness: '
-              f'{np.mean(fits):.5f}; Time per generation: {time.time() - start_time:.3f}; '
-              f'convergence: {cnt_convergence} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}')
+        # print(f'Generation {generation_i} Top fitness: {best_fit:.5f}; Average fitness: '
+        #       f'{np.mean(fits):.5f}; Time per generation: {time.time() - start_time:.3f}; '
+        #       f'convergence: {cnt_convergence} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}')
 
     # return best and modularity history
     return pop[0], best_modularity_per_generation
@@ -358,7 +370,7 @@ def find_partition():
 # globals and hyper-parameters
 POPULATION_SIZE = 60
 N_WORKERS = 60
-MAX_GENERATIONS = 500
+MAX_GENERATIONS = 200
 N_IMMIGRANTS = -1
 N_ELITE = -1
 SELECTION_POWER = 5
@@ -370,27 +382,10 @@ stopping_criterion_generations = 10
 stopping_criterion_jaccard = .98
 elite_similarity_threshold = .9
 
-def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=500, workers=-1, seed=None, resolution=1):
-    global POPULATION_SIZE, MAX_GENERATIONS, GRAPH_PATH
+def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=200, workers=-1, seed=None, resolution=1):
+    global POPULATION_SIZE, MAX_GENERATIONS, GRAPH
     global N_WORKERS, PROBS, N_ELITE, N_IMMIGRANTS, SIM_INDICES, G_ig, POOL
     global RESOLUTION
-
-    temp_path = None  # temp file path if needed
-
-    # Convert NetworkX graph to .graph file if needed
-    if isinstance(graph, nx.Graph):
-        temp = tempfile.NamedTemporaryFile(delete=False, suffix=".graph", mode='w')
-        for node in graph.nodes:
-            neighbors = list(graph.neighbors(node))
-            line = ' '.join(map(str, [node] + neighbors))
-            temp.write(line + '\n')
-        temp.close()
-        GRAPH_PATH = temp.name
-        temp_path = temp.name
-    elif isinstance(graph, str):
-        GRAPH_PATH = graph
-    else:
-        raise TypeError("Input to run_clustering must be a file path or a NetworkX graph.")
 
     # Set random seed
     if seed is not None:
@@ -398,6 +393,7 @@ def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=5
         random.seed(seed)
 
     # Set parameters
+    GRAPH = graph
     POPULATION_SIZE = max(10, size)
     MAX_GENERATIONS = max_generations
     cpus = os.cpu_count()
@@ -408,8 +404,8 @@ def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=5
     RESOLUTION = resolution
 
     # Load graph in master process (for sampling) and in workers
-    G_ig = load_graph(GRAPH_PATH)
-    POOL = Pool(N_WORKERS, initializer=init_worker, initargs=(GRAPH_PATH, RESOLUTION))
+    G_ig = load_graph(GRAPH)
+    POOL = Pool(N_WORKERS, initializer=init_worker, initargs=(GRAPH, RESOLUTION))
 
     # Optional sampling indices
     SIM_SAMPLE_SIZE = 20000
@@ -418,7 +414,12 @@ def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=5
 
     print(f'Main parameter values: pop_size={POPULATION_SIZE}, workers={N_WORKERS}, max_generations={MAX_GENERATIONS}')
 
+    import time
+    start_time = time.time()
     best_partition, mod_history = find_partition()
+    end_time = time.time()
+    print(f"Clustering completed in {end_time - start_time:.4f} seconds")
+    
     np.save(f'TAU_partition_{graph_name}.npy', best_partition.membership)
     print("Best modularity:", best_partition.fitness)
     POOL.close()
@@ -426,10 +427,24 @@ def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=5
     
     return best_partition.membership, best_partition.fitness
 
-    # Clean up temporary file
-    if temp_path is not None:
-        os.remove(temp_path)
 if __name__ == "__main__":
-    G = nx.erdos_renyi_graph(100, 0.05)
-    path = 'synthetic.graph'
-    run_clustering(path, graph_name="erdos_test", size=30, max_generations=50)
+    
+    n_communities = 4
+    nodes_per_comm = 25
+    p_intra = 0.8
+    p_inter = 0.02
+
+    # Create stochastic block model
+    sizes = [nodes_per_comm] * n_communities
+    probs = [[p_intra if i == j else p_inter for j in range(n_communities)] for i in range(n_communities)]
+    G = nx.stochastic_block_model(sizes, probs, seed=42)
+    
+    # Save G as an adjacency list in the same format as example.graph (space-separated, 1-based node indices)
+    with open("erdos_test_adjlist.txt", "w") as f:
+        for node in sorted(G.nodes()):
+            neighbors = sorted(G.neighbors(node))
+            # Convert to 1-based indices for output
+            line = " ".join(str(n + 1) for n in [node] + neighbors)
+            f.write(line + "\n")
+  
+    run_clustering(G, graph_name="erdos_test", size=30, max_generations=50)

@@ -125,12 +125,19 @@ def flip_coin():
     return random.uniform(0, 1) > .5
 
 
-def load_graph(path):
-    nx_graph = nx.read_adjlist(path)
-    mapping = dict(zip(nx_graph.nodes(), range(nx_graph.number_of_nodes())))
-    nx_graph = nx.relabel_nodes(nx_graph, mapping)
-    ig_graph = ig.Graph(len(nx_graph), list(zip(*list(zip(*nx.to_edgelist(nx_graph)))[:2])))
-    return ig_graph
+def load_graph(path, weighted=False):
+    if isinstance(path, str):
+        nx_graph = nx.read_adjlist(path)
+        mapping = dict(zip(nx_graph.nodes(), range(nx_graph.number_of_nodes())))
+        nx_graph = nx.relabel_nodes(nx_graph, mapping)
+        ig_graph = ig.Graph(len(nx_graph), list(zip(*list(zip(*nx.to_edgelist(nx_graph)))[:2])))
+        return ig_graph
+    elif isinstance(path, nx.Graph):
+        ig_graph = ig.Graph(len(path), list(zip(*list(zip(*nx.to_edgelist(path)))[:2])))
+        return ig_graph
+    
+    else:
+        raise TypeError("Graph type not supported")
 
 
 def overlap(partition_memberships):
@@ -324,45 +331,76 @@ stopping_criterion_generations = 10
 stopping_criterion_jaccard = .98
 elite_similarity_threshold = .9
 
-if __name__ == "__main__":
-    # parse script parameters
-    parser = argparse.ArgumentParser(description='TAU')
-    # general parameters
-    parser.add_argument('--graph', required=True, help='Path to adjacency-list file')
-    parser.add_argument('--size', type=int, default=60, help='size of population; default is 60')
-    parser.add_argument('--workers', type=int, default=-1, help='number of workers; '
-                                                                'default is number of available CPUs')
-    parser.add_argument('--max_generations', type=int, default=500, help='maximum number of generations to run;'
-                                                                         ' default is 500')
-    args = parser.parse_args()
+def run_clustering(graph, graph_name='unnamed_graph', size=60, max_generations=200, workers=-1, seed=None, resolution=1):
+    global POPULATION_SIZE, MAX_GENERATIONS, GRAPH
+    global N_WORKERS, PROBS, N_ELITE, N_IMMIGRANTS, SIM_INDICES, G_ig, POOL
+    global RESOLUTION
 
-    # set global variable values
-    population_size = max(10, args.size)
+    # Set random seed
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
+
+    # Set parameters
+    GRAPH = graph
+    POPULATION_SIZE = max(10, size)
+    MAX_GENERATIONS = max_generations
     cpus = os.cpu_count()
-    N_WORKERS = min(cpus, population_size) if args.workers == -1 else np.min([cpus, population_size, args.workers])
-    PROBS = get_probabilities(np.arange(population_size))
-    N_ELITE, N_IMMIGRANTS = int(p_elite * population_size), int(p_immigrants * population_size)
-    POPULATION_SIZE = population_size
-    MAX_GENERATIONS = args.max_generations
-    GRAPH_PATH = args.graph
-    # Initialize graph and worker pool
-    G_ig = load_graph(GRAPH_PATH)
-    POOL = Pool(N_WORKERS, initializer=init_worker, initargs=(GRAPH_PATH,))
-    # Optional: set SIM_SAMPLE_SIZE for large graphs (uncomment)
+    N_WORKERS = min(cpus, POPULATION_SIZE) if workers == -1 else min(cpus, POPULATION_SIZE, workers)
+    PROBS = get_probabilities(np.arange(POPULATION_SIZE))
+    N_ELITE = int(p_elite * POPULATION_SIZE)
+    N_IMMIGRANTS = int(p_immigrants * POPULATION_SIZE)
+    RESOLUTION = resolution
+
+    # Load graph in master process (for sampling) and in workers
+    G_ig = load_graph(GRAPH)
+    POOL = Pool(N_WORKERS, initializer=init_worker, initargs=(GRAPH,),)
+
+    # Optional sampling indices
     SIM_SAMPLE_SIZE = 20000
     if G_ig.vcount() > SIM_SAMPLE_SIZE:
         SIM_INDICES = np.random.choice(G_ig.vcount(), SIM_SAMPLE_SIZE, replace=False)
 
     print(f'Main parameter values: pop_size={POPULATION_SIZE}, workers={N_WORKERS}, max_generations={MAX_GENERATIONS}')
 
-    start = time.time()
+    import time
+    start_time = time.time()
     best_partition, mod_history = find_partition()
-    end = time.time()
+    end_time = time.time()
+    print(f"Clustering completed in {end_time - start_time:.4f} seconds")
     
-    print(f"Clustering completed in {end - start:.4f} seconds")
-    # np.save(f'TAU_partition_{args.graph}.npy', best_partition.membership)
+    np.save(f'TAU_partition_{graph_name}.npy', best_partition.membership)
     print("Best modularity:", best_partition.fitness)
-
-    # Clean up pool
     POOL.close()
     POOL.join()
+    
+    return best_partition.membership, best_partition.fitness
+
+if __name__ == "__main__":
+    
+    n_communities = 4
+    nodes_per_comm = 25
+    p_intra = 0.8
+    p_inter = 0.02
+
+    # Create stochastic block model
+    sizes = [nodes_per_comm] * n_communities
+    probs = [[p_intra if i == j else p_inter for j in range(n_communities)] for i in range(n_communities)]
+    G = nx.stochastic_block_model(sizes, probs, seed=42)
+    
+    # INSERT_YOUR_CODE
+    import time
+
+    # Convert NetworkX graph to igraph
+    G_ig_leiden = ig.Graph(len(G), list(zip(*list(zip(*nx.to_edgelist(G)))[:2])))
+
+    # Run Leiden algorithm and time it
+    start_leiden = time.time()
+    leiden_partition = G_ig_leiden.community_leiden(objective_function="modularity")
+    end_leiden = time.time()
+    print(f"Leiden clustering completed in {end_leiden - start_leiden:.4f} seconds")
+    print("Leiden modularity:", leiden_partition.modularity)
+  
+    # INSERT_YOUR_CODE
+    tau_membership, mod_history = run_clustering(G, graph_name="erdos_test", size=30, max_generations=50)
+    

@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: tau_community_detection
-Version: 0.3.18
+Version: 0.3.23
 Summary: Community detection via Louvain/Leiden + Genetic Algorithm
 Author: Hillel Charbit
 Author-email: hillelch@tauex.tau.ac.il
@@ -10,10 +10,11 @@ Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
 Requires-Python: >=3.8
 Description-Content-Type: text/markdown
-Requires-Dist: networkx==3.5
-Requires-Dist: numpy==1.26.4
+Requires-Dist: networkx==3.2.1
+Requires-Dist: numpy==2.0
 Requires-Dist: python-igraph==0.11.9
 Requires-Dist: pandas==2.2.2
+Requires-Dist: scikit-learn==1.6
 
 # TAU: Parallel Genetic Clustering with Louvain and Leiden
 
