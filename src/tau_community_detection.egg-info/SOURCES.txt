@@ -6,6 +6,7 @@ src/tau_community_detection/algorithm.py
 src/tau_community_detection/config.py
 src/tau_community_detection/graph.py
 src/tau_community_detection/partition.py
+src/tau_community_detection/profile_tau.py
 src/tau_community_detection/run_clustering.py
 src/tau_community_detection.egg-info/PKG-INFO
 src/tau_community_detection.egg-info/SOURCES.txt
@@ -13,4 +14,5 @@ src/tau_community_detection.egg-info/dependency_links.txt
 src/tau_community_detection.egg-info/entry_points.txt
 src/tau_community_detection.egg-info/requires.txt
 src/tau_community_detection.egg-info/top_level.txt
+tests/test_tau_smoke.py
 tests/teststuff.py

@@ -100,14 +100,31 @@ See `src/tau_community_detection/config.py` for the complete list.
 
 ---
 
-## Development Workflow
+## Development
 
-- Format imports and style according to your preferred tooling (no formatter is enforced).
-- Validate new changes by executing the example script or custom experiments.
-- When contributing, ensure dependency pins remain compatible with Python 3.10+.
+```bash
+pip install -r requirements-dev.txt
+make lint
+make test
+```
 
-Pull requests are welcome—please include context on parameter changes or performance
-observations when proposing algorithmic tweaks.
+To build local distributions:
+
+```bash
+make build
+```
+
+### Continuous Integration
+
+- GitHub Actions run lint, tests, and package builds on pushes and pull requests.
+- Set the `CODECOV_TOKEN` secret to upload coverage reports.
+
+### Publishing
+
+1. Bump the version in `setup.cfg`/`pyproject.toml` and commit.
+2. Tag the release with `git tag vX.Y.Z && git push --tags`.
+3. Run the **Publish Package** workflow (defaults to TestPyPI). For PyPI, supply the `pypi`
+   input and ensure `PYPI_API_TOKEN` is set. Use `TEST_PYPI_API_TOKEN` for dry runs.
 
 ---
 
@@ -115,4 +132,3 @@ observations when proposing algorithmic tweaks.
 
 Released under the [MIT License](https://opensource.org/licenses/MIT). See `LICENSE` for
 details.
-

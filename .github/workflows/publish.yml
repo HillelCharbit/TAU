@@ -1,0 +1,44 @@
+name: Publish Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Publish target (testpypi|pypi)"
+        required: true
+        default: "testpypi"
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install build tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: Build distribution
+        run: make build
+
+      - name: Publish package
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ inputs.target == 'pypi' && secrets.PYPI_API_TOKEN || secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          if [ "${{ inputs.target }}" = "pypi" ]; then
+            python -m twine upload dist/*
+          else
+            python -m twine upload --repository testpypi dist/*
+          fi
