@@ -13,22 +13,34 @@ from .graph import load_graph
 
 _GRAPH: ig.Graph | None = None
 _LEIDEN_ITERATIONS: int = 3
+_LEIDEN_RESOLUTION: float = 1.0
 _RNG: np.random.Generator | None = None
 
 
-def configure_shared_state(graph: ig.Graph, leiden_iterations: int, seed: Optional[int] = None) -> None:
+def configure_shared_state(
+    graph: ig.Graph,
+    leiden_iterations: int,
+    leiden_resolution: float,
+    seed: Optional[int] = None,
+) -> None:
     """Configure global state for the current process (typically the main process)."""
-    global _GRAPH, _LEIDEN_ITERATIONS, _RNG
+    global _GRAPH, _LEIDEN_ITERATIONS, _LEIDEN_RESOLUTION, _RNG
     _GRAPH = graph
     _LEIDEN_ITERATIONS = leiden_iterations
+    _LEIDEN_RESOLUTION = leiden_resolution
     _RNG = np.random.default_rng(seed)
 
 
-def init_worker(graph_path: str, leiden_iterations: int, seed: Optional[int]) -> None:
+def init_worker(
+    graph_path: str,
+    leiden_iterations: int,
+    leiden_resolution: float,
+    seed: Optional[int],
+) -> None:
     """Worker initializer to lazily load the graph and RNG in each process."""
     graph = load_graph(Path(graph_path))
     process_seed = None if seed is None else seed + (os.getpid() % 10_000)
-    configure_shared_state(graph, leiden_iterations, process_seed)
+    configure_shared_state(graph, leiden_iterations, leiden_resolution, process_seed)
 
 
 def get_graph() -> ig.Graph:
@@ -84,7 +96,10 @@ class Partition:
 
         membership = np.full(n_nodes, -1, dtype=int)
         sub_nodes = [vertex.index for vertex in subgraph.vs]
-        sub_partition = subgraph.community_leiden(objective_function="modularity")
+        sub_partition = subgraph.community_leiden(
+            objective_function="modularity",
+            resolution_parameter=_LEIDEN_RESOLUTION,
+        )
         local_membership = np.asarray(sub_partition.membership, dtype=int)
         membership[sub_nodes] = local_membership
 
@@ -99,6 +114,7 @@ class Partition:
             objective_function="modularity",
             initial_membership=self.membership,
             n_iterations=_LEIDEN_ITERATIONS,
+            resolution_parameter=_LEIDEN_RESOLUTION,
         )
         self.membership = np.asarray(partition.membership, dtype=int)
         self.n_comms = int(self.membership.max()) + 1

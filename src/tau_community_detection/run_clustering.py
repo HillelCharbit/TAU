@@ -13,6 +13,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from tau_community_detection import TauClustering
+from tau_community_detection.config import TauConfig
 
 
 if __name__ == "__main__":
@@ -23,7 +24,9 @@ if __name__ == "__main__":
     
     G = nx.erdos_renyi_graph(1000, 0.1)
     graph_path = PACKAGE_DIR / "examples" / "example.graph"
-    clustering = TauClustering(G, population_size=60, max_generation=150)
+    config = TauConfig(leiden_resolution=1.1)
+    clustering = TauClustering(G, population_size=60, max_generation=150, config=config)
+    print(f"Running TAU with Leiden resolution={config.leiden_resolution}")
     membership, mod_history = clustering.run()
 
     # print(membership)

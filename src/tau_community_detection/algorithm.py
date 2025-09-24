@@ -43,7 +43,12 @@ class TauClustering:
         self.config.population_size = population_size
         self.config.max_generations = max_generation
 
-        configure_shared_state(self.graph, self.config.leiden_iterations, self.config.random_seed)
+        configure_shared_state(
+            self.graph,
+            self.config.leiden_iterations,
+            self.config.leiden_resolution,
+            self.config.random_seed,
+        )
         self.rng = np.random.default_rng(self.config.random_seed)
         self.sim_indices: Optional[np.ndarray] = self._init_similarity_indices()
         self.selection_probs = self._selection_probabilities(self.config.population_size)
@@ -79,7 +84,12 @@ class TauClustering:
         with Pool(
             worker_count,
             initializer=init_worker,
-            initargs=(str(self.graph_path), self.config.leiden_iterations, self.config.random_seed),
+            initargs=(
+                str(self.graph_path),
+                self.config.leiden_iterations,
+                self.config.leiden_resolution,
+                self.config.random_seed,
+            ),
         ) as pool:
             population = self._create_population(pool, self.config.population_size)
 
