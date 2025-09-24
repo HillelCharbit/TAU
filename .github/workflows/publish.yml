@@ -34,11 +34,20 @@ jobs:
 
       - name: Publish package
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ inputs.target == 'pypi' && secrets.PYPI_API_TOKEN || secrets.TEST_PYPI_API_TOKEN }}
+          TARGET: ${{ inputs.target }}
+          PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          TEST_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
         run: |
-          if [ "${{ inputs.target }}" = "pypi" ]; then
-            python -m twine upload dist/*
+          if [ "$TARGET" = "pypi" ]; then
+            if [ -z "$PYPI_TOKEN" ]; then
+              echo "PYPI_API_TOKEN secret is not configured" >&2
+              exit 1
+            fi
+            TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" python -m twine upload dist/*
           else
-            python -m twine upload --repository testpypi dist/*
+            if [ -z "$TEST_TOKEN" ]; then
+              echo "TEST_PYPI_API_TOKEN secret is not configured" >&2
+              exit 1
+            fi
+            TWINE_USERNAME=__token__ TWINE_PASSWORD="$TEST_TOKEN" python -m twine upload --repository testpypi dist/*
           fi
