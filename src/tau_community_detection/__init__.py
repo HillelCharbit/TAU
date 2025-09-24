@@ -1,5 +1,8 @@
-from .script import run_clustering
+"""Public API for the TAU clustering package."""
+from .algorithm import TauClustering
+from .config import TauConfig
 
-__all__ = ["run_clustering"]
-__version__ = "0.3.24"
+__all__ = ["TauClustering", "TauConfig"]
+
+__version__ = "1.0.1"
 
