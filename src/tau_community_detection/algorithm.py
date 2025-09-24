@@ -1,20 +1,20 @@
 """High-level TAU clustering API."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from multiprocessing import Pool, set_start_method
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Optional, Sequence, Tuple
 import time
 import weakref
 
+import igraph as ig
 import networkx as nx
 import numpy as np
 from sklearn.metrics.cluster import pair_confusion_matrix
 
 from .config import TauConfig
-from .graph import load_graph
+from .graph import load_graph, networkx_to_igraph
 from .partition import (
     Partition,
     configure_shared_state,
@@ -36,9 +36,22 @@ class TauClustering:
     def __init__(self, graph_source: str | Path | nx.Graph, population_size, max_generation, config: Optional[TauConfig] = None):
         self._temp_graph_path: Optional[Path] = None
         self._temp_graph_finalizer = None
-        self.graph_path = self._resolve_graph_path(graph_source)
+        self._pool: Optional[Pool] = None
+        self._pool_processes: Optional[int] = None
         self.config = config or TauConfig()
-        self.graph = load_graph(self.graph_path)
+        self.graph_path, preloaded_graph = self._prepare_graph_source(
+            graph_source,
+            weight_attribute=self.config.weight_attribute,
+            default_weight=self.config.default_edge_weight,
+        )
+        if preloaded_graph is not None:
+            self.graph = preloaded_graph
+        else:
+            self.graph = load_graph(
+                self.graph_path,
+                weight_attribute=self.config.weight_attribute,
+                default_weight=self.config.default_edge_weight,
+            )
         
         self.config.population_size = population_size
         self.config.max_generations = max_generation
@@ -47,28 +60,44 @@ class TauClustering:
             self.graph,
             self.config.leiden_iterations,
             self.config.leiden_resolution,
+            self.config.weight_attribute,
             self.config.random_seed,
         )
         self.rng = np.random.default_rng(self.config.random_seed)
         self.sim_indices: Optional[np.ndarray] = self._init_similarity_indices()
         self.selection_probs = self._selection_probabilities(self.config.population_size)
 
-    def _resolve_graph_path(self, graph_source: str | Path | nx.Graph) -> Path:
+        self._pool_finalizer = weakref.finalize(self, TauClustering._finalize_pool, weakref.proxy(self))
+
+    def _prepare_graph_source(
+        self,
+        graph_source: str | Path | nx.Graph,
+        weight_attribute: Optional[str],
+        default_weight: float,
+    ) -> tuple[Path, Optional[ig.Graph]]:
         if isinstance(graph_source, (str, Path)):
-            return Path(graph_source)
+            return Path(graph_source), None
         if isinstance(graph_source, nx.Graph):
-            temp_file = NamedTemporaryFile("wb+", suffix=".graph", delete=False)
+            temp_file = NamedTemporaryFile("wb", suffix=".igpkl", delete=False)
             try:
-                nx.write_adjlist(graph_source, temp_file)
+                ig_graph = networkx_to_igraph(
+                    graph_source,
+                    weight_attribute=weight_attribute,
+                    default_weight=default_weight,
+                )
+                ig_graph.write_pickle(temp_file.name)
                 temp_path = Path(temp_file.name)
             finally:
                 temp_file.close()
             self._temp_graph_path = temp_path
             self._temp_graph_finalizer = weakref.finalize(self, _cleanup_temp_graph_file, temp_path)
-            return temp_path
+            return temp_path, ig_graph
+        raise TypeError(f"Unsupported graph source type: {type(graph_source)!r}")
 
     def run(self):
         worker_count = self.config.resolve_worker_count(self.config.population_size)
+        chunk_size = self._resolve_chunk_size(worker_count)
+        pool = self._ensure_pool(worker_count)
         elite_count = min(self.config.resolve_elite_count(), self.config.population_size)
         immigrant_count = min(
             self.config.resolve_immigrant_count(),
@@ -81,76 +110,77 @@ class TauClustering:
         convergence_streak = 0
         best_partition: Optional[Partition] = None
 
-        with Pool(
-            worker_count,
-            initializer=init_worker,
-            initargs=(
-                str(self.graph_path),
-                self.config.leiden_iterations,
-                self.config.leiden_resolution,
-                self.config.random_seed,
-            ),
-        ) as pool:
-            population = self._create_population(pool, self.config.population_size)
+        population = self._create_population(pool, self.config.population_size, chunk_size)
 
-            for generation in range(1, self.config.max_generations + 1):
-                start_time = time.time()
-                population = pool.map(optimize_partition, population)
+        for generation in range(1, self.config.max_generations + 1):
+            start_time = time.time()
+            optimized = pool.map(optimize_partition, population, chunksize=chunk_size)
+            population[:] = optimized
 
-                fitnesses = np.array([p.fitness if p.fitness is not None else float("-inf") for p in population])
-                best_idx = int(np.argmax(fitnesses))
-                best_partition = population[best_idx]
-                best_modularity = float(best_partition.fitness or -np.inf)
-                mod_history.append(best_modularity)
+            fitnesses = np.array([p.fitness if p.fitness is not None else float("-inf") for p in population])
+            best_idx = int(np.argmax(fitnesses))
+            best_partition = population[best_idx]
+            best_modularity = float(best_partition.fitness or -np.inf)
+            mod_history.append(best_modularity)
 
-                if last_best_membership is not None:
-                    jacc = self._similarity_arrays(best_partition.membership, last_best_membership)
-                    if jacc >= self.config.stopping_jaccard:
-                        convergence_streak += 1
-                    else:
-                        convergence_streak = 0
-                last_best_membership = best_partition.membership.copy()
+            if last_best_membership is not None:
+                jacc = self._similarity_arrays(best_partition.membership, last_best_membership)
+                if jacc >= self.config.stopping_jaccard:
+                    convergence_streak += 1
+                else:
+                    convergence_streak = 0
+            last_best_membership = best_partition.membership.copy()
 
-                if convergence_streak >= self.config.stopping_generations:
-                    break
-                if generation >= self.config.max_generations:
-                    break
+            if convergence_streak >= self.config.stopping_generations:
+                break
+            if generation >= self.config.max_generations:
+                break
 
-                population.sort(key=lambda part: part.fitness or float("-inf"), reverse=True)
-                elt_st = time.time()
-                elite_indices = self._elitist_selection(population, self.config.elite_similarity_threshold, elite_count)
-                elt_rt = time.time() - elt_st
-                elites = [population[i] for i in elite_indices]
+            population.sort(key=lambda part: part.fitness or float("-inf"), reverse=True)
+            elt_st = time.time()
+            elite_indices = self._elitist_selection(population, self.config.elite_similarity_threshold, elite_count)
+            elt_rt = time.time() - elt_st
+            elites = [population[i] for i in elite_indices]
 
-                crim_st = time.time()
-                offspring = self._produce_offspring(population, offspring_count)
-                immigrants = self._create_population(pool, immigrant_count) if immigrant_count else []
-                crim_rt = time.time() - crim_st
-                
-                if offspring:
-                    offspring = pool.map(mutate_partition, offspring)
-                    
-                population = elites + offspring + immigrants
-                
+            crim_st = time.time()
+            offspring = self._produce_offspring(population, offspring_count)
+            immigrants = (
+                self._create_population(pool, immigrant_count, chunk_size)
+                if immigrant_count
+                else []
+            )
+            crim_rt = time.time() - crim_st
 
-                print(f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
-                      f'{np.mean(fitnesses):.5f}; Time per generation: {time.time() - start_time:.3f}; '
-                      f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
-                      )
-                
+            if offspring:
+                mutated_offspring = pool.map(mutate_partition, offspring, chunksize=chunk_size)
+                offspring = mutated_offspring
+
+            population[:] = elites
+            population.extend(offspring)
+            population.extend(immigrants)
+
+            print(
+                f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
+                f'{np.mean(fitnesses):.5f}; Time per generation: {time.time() - start_time:.3f}; '
+                f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
+            )
+
         if best_partition is None:
             raise RuntimeError("TAU clustering failed to produce any solution.")
 
-        return best_partition.membership, mod_history
-        
-        
+        if not self.config.reuse_worker_pool:
+            self._shutdown_pool()
 
-    def _create_population(self, pool: Pool, size: int) -> list[Partition]:
+        return best_partition.membership, mod_history
+
+
+
+    def _create_population(self, pool: Pool, size: int, chunk_size: int) -> list[Partition]:
         if size <= 0:
             return []
         low, high = self.config.sample_fraction_range
         fractions = self.rng.uniform(low, high, size)
-        return pool.map(create_partition, fractions.tolist())
+        return pool.map(create_partition, fractions.tolist(), chunksize=chunk_size)
 
     def _produce_offspring(self, population: Sequence[Partition], count: int) -> list[Partition]:
         if count <= 0:
@@ -166,6 +196,59 @@ class TauClustering:
             else:
                 offspring.append(Partition(init_membership=parent_a.membership))
         return offspring
+
+    def close(self) -> None:
+        self._shutdown_pool()
+
+    def __enter__(self) -> "TauClustering":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def _ensure_pool(self, worker_count: int) -> Pool:
+        if self._pool is not None and self._pool_processes == worker_count:
+            return self._pool
+        self._shutdown_pool()
+        initargs = (
+            str(self.graph_path),
+            self.config.leiden_iterations,
+            self.config.leiden_resolution,
+            self.config.weight_attribute,
+            self.config.default_edge_weight,
+            self.config.random_seed,
+        )
+        self._pool = Pool(
+            worker_count,
+            initializer=init_worker,
+            initargs=initargs,
+        )
+        self._pool_processes = worker_count
+        return self._pool
+
+    def _shutdown_pool(self) -> None:
+        if self._pool is None:
+            return
+        self._pool.close()
+        self._pool.join()
+        self._pool = None
+        self._pool_processes = None
+
+    def _resolve_chunk_size(self, worker_count: int) -> int:
+        explicit = self.config.worker_chunk_size
+        if explicit is not None and explicit > 0:
+            return int(explicit)
+        if worker_count <= 0:
+            return 1
+        approx = max(1, (self.config.population_size + worker_count - 1) // worker_count)
+        return approx
+
+    @staticmethod
+    def _finalize_pool(instance_proxy: "TauClustering") -> None:
+        try:
+            instance_proxy._shutdown_pool()
+        except ReferenceError:
+            pass
 
     def _elitist_selection(
         self,

@@ -21,6 +21,10 @@ class TauConfig:
     sim_sample_size: Optional[int] = 20_000
     leiden_iterations: int = 3
     leiden_resolution: float = 1.0
+    weight_attribute: Optional[str] = "weight"
+    default_edge_weight: float = 1.0
+    worker_chunk_size: Optional[int] = None
+    reuse_worker_pool: bool = True
     sample_fraction_range: Tuple[float, float] = (0.2, 0.9)
     random_seed: Optional[int] = None
 

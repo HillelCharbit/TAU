@@ -14,6 +14,7 @@ from .graph import load_graph
 _GRAPH: ig.Graph | None = None
 _LEIDEN_ITERATIONS: int = 3
 _LEIDEN_RESOLUTION: float = 1.0
+_LEIDEN_WEIGHT_ATTRIBUTE: Optional[str] = None
 _RNG: np.random.Generator | None = None
 
 
@@ -21,13 +22,17 @@ def configure_shared_state(
     graph: ig.Graph,
     leiden_iterations: int,
     leiden_resolution: float,
+    weight_attribute: Optional[str],
     seed: Optional[int] = None,
 ) -> None:
     """Configure global state for the current process (typically the main process)."""
-    global _GRAPH, _LEIDEN_ITERATIONS, _LEIDEN_RESOLUTION, _RNG
+    global _GRAPH, _LEIDEN_ITERATIONS, _LEIDEN_RESOLUTION, _LEIDEN_WEIGHT_ATTRIBUTE, _RNG
     _GRAPH = graph
     _LEIDEN_ITERATIONS = leiden_iterations
     _LEIDEN_RESOLUTION = leiden_resolution
+    _LEIDEN_WEIGHT_ATTRIBUTE = (
+        weight_attribute if weight_attribute and weight_attribute in graph.es.attributes() else None
+    )
     _RNG = np.random.default_rng(seed)
 
 
@@ -35,12 +40,24 @@ def init_worker(
     graph_path: str,
     leiden_iterations: int,
     leiden_resolution: float,
+    weight_attribute: Optional[str],
+    default_weight: float,
     seed: Optional[int],
 ) -> None:
     """Worker initializer to lazily load the graph and RNG in each process."""
-    graph = load_graph(Path(graph_path))
+    graph = load_graph(
+        Path(graph_path),
+        weight_attribute=weight_attribute,
+        default_weight=default_weight,
+    )
     process_seed = None if seed is None else seed + (os.getpid() % 10_000)
-    configure_shared_state(graph, leiden_iterations, leiden_resolution, process_seed)
+    configure_shared_state(
+        graph,
+        leiden_iterations,
+        leiden_resolution,
+        weight_attribute,
+        process_seed,
+    )
 
 
 def get_graph() -> ig.Graph:
@@ -56,6 +73,12 @@ def get_rng() -> np.random.Generator:
     if _RNG is None:
         _RNG = np.random.default_rng()
     return _RNG
+
+
+def _resolve_weights(graph: ig.Graph) -> Optional[list[float]]:
+    if _LEIDEN_WEIGHT_ATTRIBUTE and _LEIDEN_WEIGHT_ATTRIBUTE in graph.es.attributes():
+        return [float(w) for w in graph.es[_LEIDEN_WEIGHT_ATTRIBUTE]]
+    return None
 
 
 @dataclass(slots=True)
@@ -99,6 +122,7 @@ class Partition:
         sub_partition = subgraph.community_leiden(
             objective_function="modularity",
             resolution_parameter=_LEIDEN_RESOLUTION,
+            weights=_resolve_weights(subgraph),
         )
         local_membership = np.asarray(sub_partition.membership, dtype=int)
         membership[sub_nodes] = local_membership
@@ -115,6 +139,7 @@ class Partition:
             initial_membership=self.membership,
             n_iterations=_LEIDEN_ITERATIONS,
             resolution_parameter=_LEIDEN_RESOLUTION,
+            weights=_resolve_weights(graph),
         )
         self.membership = np.asarray(partition.membership, dtype=int)
         self.n_comms = int(self.membership.max()) + 1
