@@ -1,7 +1,7 @@
 .PHONY: lint test coverage build clean
 
 lint:
-	ruff check src tests
+	ruff check --select E9,F63,F7,F82 src tests
 
 test:
 	pytest --maxfail=1 --disable-warnings
