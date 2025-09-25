@@ -1,27 +1,17 @@
 import random
 
-def generate_adj_list_graph(num_vertices, num_edges, output_file):
-    # Use a set to avoid duplicate edges and self-loops
-    edges = set()
-    while len(edges) < num_edges:
-        u = random.randint(0, num_vertices - 1)
-        v = random.randint(0, num_vertices - 1)
-        if u != v:
-            edge = (min(u, v), max(u, v))
-            if edge not in edges:
-                edges.add(edge)
+def generate_adj_list_graph(output_file):
+    import networkx as nx
 
-    # Build adjacency list
-    adj = {i: [] for i in range(num_vertices)}
-    for u, v in edges:
-        adj[u].append(v)
-        adj[v].append(u)
+    # If num_vertices and num_edges are not used, use the hardcoded values as per instruction
+    G = nx.erdos_renyi_graph(20000, 0.005)
 
-    # Write to file in the format: node: neighbor1 neighbor2 ...
     with open(output_file, "w") as f:
-        for node in range(num_vertices):
-            neighbors = " ".join(str(neigh) for neigh in sorted(adj[node]))
-            f.write(f"{node}: {neighbors}\n")
+        for node in G.nodes():
+            neighbors = list(G.neighbors(node))
+            if neighbors:
+                line = f"{node + 1} " + " ".join(str(n + 1) for n in neighbors) + "\n"
+                f.write(line)
 
 if __name__ == "__main__":
-    generate_adj_list_graph(20000, 150000, "example-150k.graph")
+    generate_adj_list_graph("example-big.graph")

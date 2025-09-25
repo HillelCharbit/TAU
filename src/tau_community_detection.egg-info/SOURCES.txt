@@ -14,5 +14,6 @@ src/tau_community_detection.egg-info/dependency_links.txt
 src/tau_community_detection.egg-info/entry_points.txt
 src/tau_community_detection.egg-info/requires.txt
 src/tau_community_detection.egg-info/top_level.txt
-tests/test_tau_smoke.py
-tests/teststuff.py
+tests/test.py
+tests/test_clustering_basic.py
+tests/test_small_graph.py

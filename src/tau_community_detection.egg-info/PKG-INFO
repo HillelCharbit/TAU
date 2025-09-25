@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: tau_community_detection
-Version: 1.1.0
+Version: 1.1.1
 Summary: Community detection via Louvain/Leiden + Genetic Algorithm
 Author: Hillel Charbit
 Author-email: hillelch@tauex.tau.ac.il

@@ -61,6 +61,7 @@ class TauClustering:
             self.config.leiden_iterations,
             self.config.leiden_resolution,
             self.config.weight_attribute,
+            self.config.default_edge_weight,
             self.config.random_seed,
         )
         self.rng = np.random.default_rng(self.config.random_seed)
@@ -68,7 +69,8 @@ class TauClustering:
         self.selection_probs = self._selection_probabilities(self.config.population_size)
 
         self._pool_finalizer = weakref.finalize(self, TauClustering._finalize_pool, weakref.proxy(self))
-
+        print(f"Main parameter values: pop_size={self.config.population_size}, workers={self.config.resolve_worker_count(self.config.population_size)}, max_generations={self.config.max_generations}")
+    
     def _prepare_graph_source(
         self,
         graph_source: str | Path | nx.Graph,
@@ -95,7 +97,6 @@ class TauClustering:
         raise TypeError(f"Unsupported graph source type: {type(graph_source)!r}")
 
     def run(self):
-        print("Tau clustering started")
         worker_count = self.config.resolve_worker_count(self.config.population_size)
         chunk_size = self._resolve_chunk_size(worker_count)
         pool = self._ensure_pool(worker_count)

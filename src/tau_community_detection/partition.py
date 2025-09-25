@@ -16,6 +16,8 @@ _GRAPH: ig.Graph | None = None
 _LEIDEN_ITERATIONS: int = 3
 _LEIDEN_RESOLUTION: float = 1.0
 _LEIDEN_WEIGHT_ATTRIBUTE: Optional[str] = None
+_LEIDEN_DEFAULT_WEIGHT: float = 1.0
+_LEIDEN_MAIN_WEIGHTS: Optional[list[float]] = None
 _RNG: np.random.Generator | None = None
 
 MEMBERSHIP_DTYPE = np.int32
@@ -26,16 +28,35 @@ def configure_shared_state(
     leiden_iterations: int,
     leiden_resolution: float,
     weight_attribute: Optional[str],
+    default_weight: float,
     seed: Optional[int] = None,
 ) -> None:
     """Configure global state for the current process (typically the main process)."""
-    global _GRAPH, _LEIDEN_ITERATIONS, _LEIDEN_RESOLUTION, _LEIDEN_WEIGHT_ATTRIBUTE, _RNG
+    global _GRAPH, _LEIDEN_ITERATIONS, _LEIDEN_RESOLUTION, _LEIDEN_WEIGHT_ATTRIBUTE
+    global _LEIDEN_DEFAULT_WEIGHT, _LEIDEN_MAIN_WEIGHTS, _RNG
     _GRAPH = graph
     _LEIDEN_ITERATIONS = leiden_iterations
     _LEIDEN_RESOLUTION = leiden_resolution
-    _LEIDEN_WEIGHT_ATTRIBUTE = (
-        weight_attribute if weight_attribute and weight_attribute in graph.es.attributes() else None
-    )
+    _LEIDEN_DEFAULT_WEIGHT = float(default_weight)
+
+    resolved_attr: Optional[str]
+    weights_cache: Optional[list[float]]
+    if weight_attribute and weight_attribute in graph.es.attributes():
+        weights_iter = [float(w) for w in graph.es[weight_attribute]]
+        # If all edges carry the default weight we can treat the graph as unweighted
+        default_val = _LEIDEN_DEFAULT_WEIGHT
+        if all(abs(w - default_val) <= 1e-12 for w in weights_iter):
+            resolved_attr = None
+            weights_cache = None
+        else:
+            resolved_attr = weight_attribute
+            weights_cache = weights_iter
+    else:
+        resolved_attr = None
+        weights_cache = None
+
+    _LEIDEN_WEIGHT_ATTRIBUTE = resolved_attr
+    _LEIDEN_MAIN_WEIGHTS = weights_cache
     _RNG = np.random.default_rng(seed)
 
 
@@ -70,6 +91,7 @@ def init_worker(
         leiden_iterations,
         leiden_resolution,
         weight_attribute,
+        default_weight,
         process_seed,
     )
 
@@ -90,7 +112,11 @@ def get_rng() -> np.random.Generator:
 
 
 def _resolve_weights(graph: ig.Graph) -> Optional[list[float]]:
-    if _LEIDEN_WEIGHT_ATTRIBUTE and _LEIDEN_WEIGHT_ATTRIBUTE in graph.es.attributes():
+    if _LEIDEN_WEIGHT_ATTRIBUTE is None:
+        return None
+    if graph is _GRAPH:
+        return _LEIDEN_MAIN_WEIGHTS
+    if _LEIDEN_WEIGHT_ATTRIBUTE in graph.es.attributes():
         return [float(w) for w in graph.es[_LEIDEN_WEIGHT_ATTRIBUTE]]
     return None
 
