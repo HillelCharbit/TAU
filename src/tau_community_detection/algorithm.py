@@ -172,7 +172,8 @@ class TauClustering:
         if not self.config.reuse_worker_pool:
             self._shutdown_pool()
 
-        return best_partition.membership, mod_history
+        membership_result = best_partition.membership.astype(np.int64, copy=True)
+        return membership_result, mod_history
 
 
 
