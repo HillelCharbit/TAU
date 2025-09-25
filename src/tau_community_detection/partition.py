@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -16,6 +17,8 @@ _LEIDEN_ITERATIONS: int = 3
 _LEIDEN_RESOLUTION: float = 1.0
 _LEIDEN_WEIGHT_ATTRIBUTE: Optional[str] = None
 _RNG: np.random.Generator | None = None
+
+MEMBERSHIP_DTYPE = np.int32
 
 
 def configure_shared_state(
@@ -81,7 +84,10 @@ def _resolve_weights(graph: ig.Graph) -> Optional[list[float]]:
     return None
 
 
-@dataclass(slots=True)
+_dataclass_kwargs = {"slots": True} if sys.version_info >= (3, 10) else {}
+
+
+@dataclass(**_dataclass_kwargs)
 class Partition:
     """Represents a candidate clustering solution."""
 
@@ -97,9 +103,39 @@ class Partition:
         if init_membership is None:
             self.membership = self._initialise_membership(graph, rng, sample_fraction)
         else:
-            self.membership = np.asarray(init_membership, dtype=int)
+            self.membership = np.asarray(init_membership, dtype=MEMBERSHIP_DTYPE)
         self.n_comms = int(self.membership.max()) + 1 if len(self.membership) else 0
         self.fitness = None
+
+    @classmethod
+    def from_membership(
+        cls,
+        membership: np.ndarray,
+        sample_fraction: float,
+        n_comms: int,
+        fitness: Optional[float] = None,
+        copy_membership: bool = False,
+    ) -> "Partition":
+        instance = cls.__new__(cls)
+        instance.membership = np.array(
+            membership,
+            dtype=MEMBERSHIP_DTYPE,
+            copy=copy_membership,
+        )
+        instance._sample_fraction = sample_fraction
+        instance.n_comms = int(n_comms)
+        instance.fitness = fitness
+        return instance
+
+    def clone(self, copy_membership: bool = False, reset_fitness: bool = True) -> "Partition":
+        fitness = None if reset_fitness else self.fitness
+        return self.from_membership(
+            self.membership,
+            sample_fraction=self._sample_fraction,
+            n_comms=self.n_comms,
+            fitness=fitness,
+            copy_membership=copy_membership,
+        )
 
     @staticmethod
     def _initialise_membership(
@@ -117,14 +153,14 @@ class Partition:
             subset = rng.choice(n_edges, size=sample_edges, replace=False)
             subgraph = graph.subgraph_edges(subset)
 
-        membership = np.full(n_nodes, -1, dtype=int)
+        membership = np.full(n_nodes, -1, dtype=MEMBERSHIP_DTYPE)
         sub_nodes = [vertex.index for vertex in subgraph.vs]
         sub_partition = subgraph.community_leiden(
             objective_function="modularity",
             resolution_parameter=_LEIDEN_RESOLUTION,
             weights=_resolve_weights(subgraph),
         )
-        local_membership = np.asarray(sub_partition.membership, dtype=int)
+        local_membership = np.asarray(sub_partition.membership, dtype=MEMBERSHIP_DTYPE)
         membership[sub_nodes] = local_membership
 
         next_label = int(local_membership.max()) + 1 if len(local_membership) else 0
@@ -141,7 +177,7 @@ class Partition:
             resolution_parameter=_LEIDEN_RESOLUTION,
             weights=_resolve_weights(graph),
         )
-        self.membership = np.asarray(partition.membership, dtype=int)
+        self.membership = np.asarray(partition.membership, dtype=MEMBERSHIP_DTYPE)
         self.n_comms = int(self.membership.max()) + 1
         self.fitness = float(partition.modularity)
         return self
@@ -174,7 +210,7 @@ class Partition:
         subgraph = graph.subgraph(indices.tolist())
         new_assignment = np.asarray(
             subgraph.community_leading_eigenvector(clusters=2).membership,
-            dtype=int,
+            dtype=MEMBERSHIP_DTYPE,
         )
         new_assignment[new_assignment == 0] = comm_id
         new_assignment[new_assignment == 1] = self.n_comms

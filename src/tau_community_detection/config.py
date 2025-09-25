@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import sys
 from typing import Optional, Tuple
 
 
-@dataclass(slots=True)
+# ``dataclass(slots=True)`` requires Python 3.10+. Provide a graceful fallback
+# so our tests can run under older interpreters in CI / sandbox.
+_dataclass_kwargs = {"slots": True} if sys.version_info >= (3, 10) else {}
+
+
+@dataclass(**_dataclass_kwargs)
 class TauConfig:
     """Hyper-parameters controlling the TAU evolutionary clustering algorithm."""
 

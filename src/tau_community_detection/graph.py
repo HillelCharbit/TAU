@@ -8,6 +8,20 @@ import igraph as ig
 import networkx as nx
 
 
+def _resolve_weight(
+    data: dict,
+    weight_attribute: Optional[str],
+    default_weight: float,
+) -> float:
+    if weight_attribute is None:
+        return float(default_weight)
+    if weight_attribute in data:
+        return float(data[weight_attribute])
+    if "weight" in data:
+        return float(data["weight"])
+    return float(default_weight)
+
+
 def load_graph(
     path: str | Path,
     *,
@@ -54,48 +68,36 @@ def load_graph(
     return networkx_to_igraph(nx_graph, weight_attribute, default_weight)
 
 
-def _edges_to_lists(
-    graph: nx.Graph, weight_attribute: Optional[str], default_weight: float
-) -> tuple[list[int], list[int], Optional[list[float]]]:
-    """Convert an edge list to parallel source/target lists (optionally weighted)."""
-    sources: list[int] = []
-    targets: list[int] = []
-    weights: Optional[list[float]] = [] if weight_attribute is not None else None
-    default_weight = float(default_weight)
-    for source, target, data in graph.edges(data=True):
-        sources.append(int(source))
-        targets.append(int(target))
-        if weights is not None:
-            weight_val = float(data.get(weight_attribute, default_weight))
-            weights.append(weight_val)
-    return sources, targets, weights
-
-
 def networkx_to_igraph(
     graph: nx.Graph,
     weight_attribute: Optional[str] = "weight",
     default_weight: float = 1.0,
 ) -> ig.Graph:
     """Convert a NetworkX graph into an igraph.Graph with optional weights."""
-    default_weight = float(default_weight)
-    use_weights = weight_attribute is not None
+    node_mapping = {node: idx for idx, node in enumerate(graph.nodes())}
+    edge_count = graph.number_of_edges()
 
-    working = graph.copy()
-    if use_weights:
-        for _, _, data in working.edges(data=True):
-            weight_val = float(data.get(weight_attribute, data.get("weight", default_weight)))
-            data[weight_attribute] = weight_val
-            data["weight"] = weight_val
+    sources: list[int] = [0] * edge_count
+    targets: list[int] = [0] * edge_count
+    weights: Optional[list[float]]
+    if weight_attribute is not None:
+        weights = [0.0] * edge_count
     else:
-        for _, _, data in working.edges(data=True):
-            if "weight" in data:
-                del data["weight"]
+        weights = None
 
-    mapping = {node: idx for idx, node in enumerate(working.nodes())}
-    working = nx.relabel_nodes(working, mapping)
+    default_weight = float(default_weight)
+    for idx, (source, target, data) in enumerate(graph.edges(data=True)):
+        sources[idx] = node_mapping[source]
+        targets[idx] = node_mapping[target]
+        if weights is not None:
+            weights[idx] = _resolve_weight(data, weight_attribute, default_weight)
 
-    sources, targets, weights = _edges_to_lists(working, weight_attribute if use_weights else None, default_weight)
-    ig_graph = ig.Graph(len(working), list(zip(sources, targets)))
-    if use_weights and weights is not None:
-        ig_graph.es[weight_attribute] = weights
+    ig_graph = ig.Graph(n=len(node_mapping), directed=graph.is_directed())
+    ig_graph.add_edges(zip(sources, targets))
+
+    if weights is not None:
+        ig_graph.es["weight"] = weights
+        if weight_attribute != "weight":
+            ig_graph.es[weight_attribute] = weights
+
     return ig_graph

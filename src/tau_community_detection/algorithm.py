@@ -95,6 +95,7 @@ class TauClustering:
         raise TypeError(f"Unsupported graph source type: {type(graph_source)!r}")
 
     def run(self):
+        print("Tau clustering started")
         worker_count = self.config.resolve_worker_count(self.config.population_size)
         chunk_size = self._resolve_chunk_size(worker_count)
         pool = self._ensure_pool(worker_count)
@@ -191,10 +192,19 @@ class TauClustering:
             parents = self.rng.choice(pop_size, size=2, replace=False, p=self.selection_probs)
             parent_a, parent_b = population[int(parents[0])], population[int(parents[1])]
             if self.rng.random() > 0.5:
-                membership = self._overlap([parent_a.membership, parent_b.membership])
-                offspring.append(Partition(init_membership=membership))
+                membership, n_comms = self._overlap([parent_a.membership, parent_b.membership])
+                sample_fraction = (parent_a._sample_fraction + parent_b._sample_fraction) / 2.0
+                offspring.append(
+                    Partition.from_membership(
+                        membership,
+                        sample_fraction=sample_fraction,
+                        n_comms=n_comms,
+                        fitness=None,
+                        copy_membership=False,
+                    )
+                )
             else:
-                offspring.append(Partition(init_membership=parent_a.membership))
+                offspring.append(parent_a.clone(copy_membership=False, reset_fitness=True))
         return offspring
 
     def close(self) -> None:
@@ -300,24 +310,28 @@ class TauClustering:
             return np.full(population_size, 1.0 / population_size)
         return weights / weights_sum
 
-    def _overlap(self, memberships: Iterable[np.ndarray]) -> np.ndarray:
+    def _overlap(self, memberships: Iterable[np.ndarray]) -> Tuple[np.ndarray, int]:
         iterator = iter(memberships)
-        consensus = np.array(next(iterator), dtype=int).copy()
+        first = np.array(next(iterator), copy=True)
+        dtype = first.dtype
+        consensus = first
         n_nodes = len(consensus)
+        label_count = int(consensus.max()) + 1 if n_nodes else 0
         for membership in iterator:
             mapping: dict[tuple[int, int], int] = {}
             next_label = 0
-            new_consensus = np.empty(n_nodes, dtype=int)
+            member_arr = np.asarray(membership, dtype=dtype)
             for node_id in range(n_nodes):
-                key = (consensus[node_id], int(membership[node_id]))
+                previous_label = int(consensus[node_id])
+                key = (previous_label, int(member_arr[node_id]))
                 label = mapping.get(key)
                 if label is None:
                     label = next_label
                     mapping[key] = label
                     next_label += 1
-                new_consensus[node_id] = label
-            consensus = new_consensus
-        return consensus
+                consensus[node_id] = label
+            label_count = next_label
+        return consensus, label_count
 
     def _init_similarity_indices(self) -> Optional[np.ndarray]:
         sample_size = self.config.sim_sample_size
