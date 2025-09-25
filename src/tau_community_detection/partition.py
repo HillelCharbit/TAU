@@ -1,7 +1,7 @@
 """Partition representation and related multiprocessing helpers."""
 from __future__ import annotations
 
-import os
+import multiprocessing as mp
 from dataclasses import dataclass
 import sys
 from pathlib import Path
@@ -53,7 +53,18 @@ def init_worker(
         weight_attribute=weight_attribute,
         default_weight=default_weight,
     )
-    process_seed = None if seed is None else seed + (os.getpid() % 10_000)
+    worker_rank = 0
+    current = mp.current_process()
+    # Pool worker identities start at 1; normalise back to 0 so the first
+    # worker reuses the user-provided seed. This keeps runs reproducible while
+    # still spacing out additional workers deterministically.
+    if current._identity:  # type: ignore[attr-defined]
+        worker_rank = current._identity[0] - 1
+    else:
+        suffix = current.name.rsplit("-", 1)
+        if len(suffix) == 2 and suffix[1].isdigit():
+            worker_rank = int(suffix[1]) - 1
+    process_seed = None if seed is None else seed + worker_rank
     configure_shared_state(
         graph,
         leiden_iterations,
