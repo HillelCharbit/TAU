@@ -260,9 +260,13 @@ def find_partition():
 
     # Population initialization
     pop = create_population(size_of_population=POPULATION_SIZE)
-
+    
+    total_time = []
+    crim_time = []
+    elt_time = []
+    
     for generation_i in range(1, MAX_GENERATIONS+1):
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         # 1. Optimize each individual
         pop = POOL.map(optimize_individual, pop)
@@ -288,26 +292,34 @@ def find_partition():
         # 3. Sort by fitness
         pop.sort(key=lambda x: x.fitness, reverse=True)
         # 4. Elitist selection
-        elt_st = time.time()
+        elt_st = time.perf_counter()
         elite_idx = elitist_selection(elite_similarity_threshold)
-        elt_rt = time.time() - elt_st
+        elt_rt = time.perf_counter() - elt_st
         elite = [pop[i] for i in elite_idx]
 
         # 5. Crossover + immigration
-        crim_st = time.time()
+        crim_st = time.perf_counter()
         offspring, immigrants = pop_crossover_and_immigration(n_offspring=POPULATION_SIZE-N_ELITE-N_IMMIGRANTS)
-        crim_rt = time.time() - crim_st
+        crim_rt = time.perf_counter() - crim_st
 
         # 6. Mutation
         offspring = POOL.map(mutate_individual, offspring)
         pop = elite + offspring + immigrants
 
+        gen_elapsed = time.perf_counter() - start_time
         print(f'Generation {generation_i} Top fitness: {best_fit:.5f}; Average fitness: '
-              f'{np.mean(fits):.5f}; Time per generation: {time.time() - start_time:.3f}; '
+              f'{np.mean(fits):.5f}; Time per generation: {gen_elapsed:.3f}; '
               f'convergence: {cnt_convergence} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}')
 
+        # Add current generation's elt_rt and crim_rt to the lists
+        elt_time.append(elt_rt)
+        crim_time.append(crim_rt)
+        total_time.append(gen_elapsed)
+        
     # return best and modularity history
-    return pop[0], best_modularity_per_generation
+    # return pop[0], best_modularity_per_generation
+    return best_modularity_per_generation, total_time, elt_time, crim_time
+
 
 
 # globals and hyper-parameters
@@ -355,13 +367,17 @@ if __name__ == "__main__":
 
     print(f'Main parameter values: pop_size={POPULATION_SIZE}, workers={N_WORKERS}, max_generations={MAX_GENERATIONS}')
 
-    start = time.time()
-    best_partition, mod_history = find_partition()
-    end = time.time()
+    start = time.perf_counter()
+    best_modularity_per_generation, total_time, elt_time, crim_time = find_partition()
+    end = time.perf_counter()
     
-    print(f"Clustering completed in {end - start:.4f} seconds")
+    # INSERT_YOUR_CODE
+    print("Best modularity:", best_modularity_per_generation[-1])
+    print("time per generation:", np.mean(total_time))
+    print("elite time per generation:", np.mean(elt_time))
+    print("crim time per generation:", np.mean(crim_time))
+    # print(f"Clustering completed in {end - start:.4f} seconds")
     # np.save(f'TAU_partition_{args.graph}.npy', best_partition.membership)
-    print("Best modularity:", best_partition.fitness)
 
     # Clean up pool
     POOL.close()

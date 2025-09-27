@@ -30,10 +30,59 @@ try:  # ensure spawn context for cross-platform safety
 except RuntimeError:
     pass
 
+
+class _SequentialPool:
+    """Lightweight stand-in when multiprocessing pools cannot be created."""
+
+    def map(self, func, iterable, chunksize: int = 1):  # noqa: D401 - simple sequential map
+        return [func(item) for item in iterable]
+
+    def close(self) -> None:
+        pass
+
+    def join(self) -> None:
+        pass
+
+
+def _overlap_memberships(memberships: Iterable[np.ndarray]) -> tuple[np.ndarray, int]:
+    """Build a consensus labelling for the provided membership arrays."""
+    iterator = iter(memberships)
+    first = np.array(next(iterator), copy=True)
+    dtype = first.dtype
+    consensus = first
+    n_nodes = len(consensus)
+    label_count = int(consensus.max()) + 1 if n_nodes else 0
+    for membership in iterator:
+        mapping: dict[tuple[int, int], int] = {}
+        next_label = 0
+        member_arr = np.asarray(membership, dtype=dtype)
+        for node_id in range(n_nodes):
+            key = (int(consensus[node_id]), int(member_arr[node_id]))
+            label = mapping.get(key)
+            if label is None:
+                label = next_label
+                mapping[key] = label
+                next_label += 1
+            consensus[node_id] = label
+        label_count = next_label
+    return consensus, label_count
+
+
+def _crossover_pair(args: tuple[np.ndarray, np.ndarray, float]) -> Partition:
+    membership_a, membership_b, sample_fraction = args
+    membership, n_comms = _overlap_memberships((membership_a, membership_b))
+    return Partition.from_membership(
+        membership,
+        sample_fraction=sample_fraction,
+        n_comms=n_comms,
+        fitness=None,
+        copy_membership=False,
+    )
+
 class TauClustering:
     """Evolutionary community detection for large graphs."""
 
-    def __init__(self, graph_source: str | Path | nx.Graph, population_size, max_generation, config: Optional[TauConfig] = None):
+    def __init__(self, graph_source: str | Path | nx.Graph, population_size, max_generations, config: Optional[TauConfig] = None):
         self._temp_graph_path: Optional[Path] = None
         self._temp_graph_finalizer = None
         self._pool: Optional[Pool] = None
@@ -54,7 +103,7 @@ class TauClustering:
             )
         
         self.config.population_size = population_size
-        self.config.max_generations = max_generation
+        self.config.max_generations = max_generations
 
         configure_shared_state(
             self.graph,
@@ -113,9 +162,11 @@ class TauClustering:
         best_partition: Optional[Partition] = None
 
         population = self._create_population(pool, self.config.population_size, chunk_size)
-
+        total_time = []
+        crim_time = []
+        elt_time = []
         for generation in range(1, self.config.max_generations + 1):
-            start_time = time.time()
+            start_time = time.perf_counter()
             optimized = pool.map(optimize_partition, population, chunksize=chunk_size)
             population[:] = optimized
 
@@ -139,19 +190,19 @@ class TauClustering:
                 break
 
             population.sort(key=lambda part: part.fitness or float("-inf"), reverse=True)
-            elt_st = time.time()
+            elt_st = time.perf_counter()
             elite_indices = self._elitist_selection(population, self.config.elite_similarity_threshold, elite_count)
-            elt_rt = time.time() - elt_st
+            elt_rt = time.perf_counter() - elt_st
             elites = [population[i] for i in elite_indices]
 
-            crim_st = time.time()
-            offspring = self._produce_offspring(population, offspring_count)
+            crim_st = time.perf_counter()
+            offspring = self._produce_offspring(pool, chunk_size, population, offspring_count)
             immigrants = (
                 self._create_population(pool, immigrant_count, chunk_size)
                 if immigrant_count
                 else []
             )
-            crim_rt = time.time() - crim_st
+            crim_rt = time.perf_counter() - crim_st
 
             if offspring:
                 mutated_offspring = pool.map(mutate_partition, offspring, chunksize=chunk_size)
@@ -161,11 +212,16 @@ class TauClustering:
             population.extend(offspring)
             population.extend(immigrants)
 
+            gen_elapsed = time.perf_counter() - start_time
             print(
                 f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
-                f'{np.mean(fitnesses):.5f}; Time per generation: {time.time() - start_time:.3f}; '
+                f'{np.mean(fitnesses):.5f}; Time per generation: {gen_elapsed:.3f}; '
                 f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
             )
+        # Add current generation's elt_rt and crim_rt to the lists
+        elt_time.append(elt_rt)
+        crim_time.append(crim_rt)
+        total_time.append(gen_elapsed)
 
         if best_partition is None:
             raise RuntimeError("TAU clustering failed to produce any solution.")
@@ -174,7 +230,8 @@ class TauClustering:
             self._shutdown_pool()
 
         membership_result = best_partition.membership.astype(np.int64, copy=True)
-        return membership_result, mod_history
+        # return membership_result, mod_history
+        return mod_history, total_time, elt_time, crim_time
 
 
 
@@ -185,28 +242,30 @@ class TauClustering:
         fractions = self.rng.uniform(low, high, size)
         return pool.map(create_partition, fractions.tolist(), chunksize=chunk_size)
 
-    def _produce_offspring(self, population: Sequence[Partition], count: int) -> list[Partition]:
+    def _produce_offspring(
+        self,
+        pool: Pool,
+        chunk_size: int,
+        population: Sequence[Partition],
+        count: int,
+    ) -> list[Partition]:
         if count <= 0:
             return []
         offspring: list[Partition] = []
+        crossover_jobs: list[tuple[np.ndarray, np.ndarray, float]] = []
         pop_size = len(population)
         for _ in range(count):
             parents = self.rng.choice(pop_size, size=2, replace=False, p=self.selection_probs)
             parent_a, parent_b = population[int(parents[0])], population[int(parents[1])]
             if self.rng.random() > 0.5:
-                membership, n_comms = self._overlap([parent_a.membership, parent_b.membership])
                 sample_fraction = (parent_a._sample_fraction + parent_b._sample_fraction) / 2.0
-                offspring.append(
-                    Partition.from_membership(
-                        membership,
-                        sample_fraction=sample_fraction,
-                        n_comms=n_comms,
-                        fitness=None,
-                        copy_membership=False,
-                    )
+                crossover_jobs.append(
+                    (parent_a.membership, parent_b.membership, sample_fraction)
                 )
             else:
                 offspring.append(parent_a.clone(copy_membership=False, reset_fitness=True))
+        if crossover_jobs:
+            offspring.extend(pool.map(_crossover_pair, crossover_jobs, chunksize=chunk_size))
         return offspring
 
     def close(self) -> None:
@@ -230,12 +289,17 @@ class TauClustering:
             self.config.default_edge_weight,
             self.config.random_seed,
         )
-        self._pool = Pool(
-            worker_count,
-            initializer=init_worker,
-            initargs=initargs,
-        )
-        self._pool_processes = worker_count
+        try:
+            self._pool = Pool(
+                worker_count,
+                initializer=init_worker,
+                initargs=initargs,
+            )
+            self._pool_processes = worker_count
+        except PermissionError:
+            print("PermissionError creating multiprocessing pool; falling back to sequential execution.")
+            self._pool = _SequentialPool()
+            self._pool_processes = 1
         return self._pool
 
     def _shutdown_pool(self) -> None:
@@ -313,27 +377,7 @@ class TauClustering:
         return weights / weights_sum
 
     def _overlap(self, memberships: Iterable[np.ndarray]) -> Tuple[np.ndarray, int]:
-        iterator = iter(memberships)
-        first = np.array(next(iterator), copy=True)
-        dtype = first.dtype
-        consensus = first
-        n_nodes = len(consensus)
-        label_count = int(consensus.max()) + 1 if n_nodes else 0
-        for membership in iterator:
-            mapping: dict[tuple[int, int], int] = {}
-            next_label = 0
-            member_arr = np.asarray(membership, dtype=dtype)
-            for node_id in range(n_nodes):
-                previous_label = int(consensus[node_id])
-                key = (previous_label, int(member_arr[node_id]))
-                label = mapping.get(key)
-                if label is None:
-                    label = next_label
-                    mapping[key] = label
-                    next_label += 1
-                consensus[node_id] = label
-            label_count = next_label
-        return consensus, label_count
+        return _overlap_memberships(memberships)
 
     def _init_similarity_indices(self) -> Optional[np.ndarray]:
         sample_size = self.config.sim_sample_size
