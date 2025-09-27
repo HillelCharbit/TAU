@@ -213,11 +213,11 @@ class TauClustering:
             population.extend(immigrants)
 
             gen_elapsed = time.perf_counter() - start_time
-            print(
-                f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
-                f'{np.mean(fitnesses):.5f}; Time per generation: {gen_elapsed:.3f}; '
-                f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
-            )
+            # print(
+            #     f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
+            #     f'{np.mean(fitnesses):.5f}; Time per generation: {gen_elapsed:.3f}; '
+            #     f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
+            # )
         # Add current generation's elt_rt and crim_rt to the lists
         elt_time.append(elt_rt)
         crim_time.append(crim_rt)

@@ -307,9 +307,9 @@ def find_partition():
         pop = elite + offspring + immigrants
 
         gen_elapsed = time.perf_counter() - start_time
-        print(f'Generation {generation_i} Top fitness: {best_fit:.5f}; Average fitness: '
-              f'{np.mean(fits):.5f}; Time per generation: {gen_elapsed:.3f}; '
-              f'convergence: {cnt_convergence} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}')
+        # print(f'Generation {generation_i} Top fitness: {best_fit:.5f}; Average fitness: '
+        #       f'{np.mean(fits):.5f}; Time per generation: {gen_elapsed:.3f}; '
+        #       f'convergence: {cnt_convergence} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}')
 
         # Add current generation's elt_rt and crim_rt to the lists
         elt_time.append(elt_rt)

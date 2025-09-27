@@ -21,31 +21,31 @@ def main():
 
     # print(f"Generated LFR graph with {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.")
     # Read the 200k node graph in adjacency list format into a NetworkX graph
-    graph_path = "tests/test_instance-100k.graph"
-    graph = nx.read_adjlist(graph_path, nodetype=int)
-    print(f"Loaded graph with {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges from {graph_path}")
+    # INSERT_YOUR_CODE
+    graph_sizes = ["100k", "200k", "500k", "1M"]
+    for size in graph_sizes:
+        graph_path = f"tests/test_instance-{size}.graph"
+        print(f"\n=== Running TAU on {size} graph ===")
+        graph = nx.read_adjlist(graph_path, nodetype=int)
+        print(f"Loaded graph with {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges from {graph_path}")
 
-    clustering = TauClustering(graph, population_size=64, max_generations=50)
-    mod_history, total_time, elt_time, crim_time = clustering.run()
+        clustering = TauClustering(graph, population_size=64, max_generations=50)
+        mod_history, total_time, elt_time, crim_time = clustering.run()
+
+        print("Best modularity:", mod_history[-1])
+        print("time per generation:", np.mean(total_time))
+        print("elite time per generation:", np.mean(elt_time))
+        print("crim time per generation:", np.mean(crim_time))
+
+        # ig_graph = ig.Graph.from_networkx(graph)
+        # leiden_membership = ig_graph.community_leiden(
+        #     objective_function="modularity",
+        #     n_iterations=-1,
+        #     resolution_parameter=1.0,
+        #     weights=None,
+        # )
+        # modularity = ig_graph.modularity(leiden_membership)
+        # print(f"Leiden modularity: {modularity}")
     
-    print("Best modularity:", mod_history[-1])
-    print("time per generation:", np.mean(total_time))
-    print("elite time per generation:", np.mean(elt_time))
-    print("crim time per generation:", np.mean(crim_time))
-
-    ig_graph = ig.Graph.from_networkx(graph)
-    # # Save the generated graph as a .graph instance (adjacency list format)
-    # nx.write_adjlist(graph, "tests/test_instance.graph")
-    # print("Graph saved as tests/test_instance.graph")
-
-    leiden_membership = ig_graph.community_leiden(
-        objective_function="modularity",
-        n_iterations=-1,
-        resolution_parameter=1.0,
-        weights=None,
-    )
-    modularity = ig_graph.modularity(leiden_membership)
-    print(f"Leiden modularity: {modularity}")
-
 if __name__ == "__main__":
     main()
