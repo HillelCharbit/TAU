@@ -46,11 +46,14 @@ pip install -e .
 
 ```python
 from tau_community_detection import TauClustering
+import networkx as nx
+
+graph = nx.read_adjlist("path/to/graph.adjlist")
 
 clustering = TauClustering(
-    graph_source="path/to/graph.adjlist",
+    graph,
     population_size=80,
-    max_generation=250,
+    max_generations=250,
 )
 membership, modularity_history = clustering.run()
 
@@ -60,9 +63,10 @@ print("best modularity:", modularity_history[-1])
 
 ### Graph input
 
-`TauClustering` accepts either an igraph/NetworkX graph object or the path to an adjacency
-list that NetworkX can parse (see `nx.read_adjlist`). Nodes are internally remapped to
-contiguous integers to maximise igraph performance.
+`TauClustering` accepts either an `igraph.Graph` or a `networkx.Graph` instance. Nodes are
+internally remapped to contiguous integers to maximise igraph performance. If your data
+resides on disk, load it into memory first (for example with `nx.read_adjlist`) before
+initialising `TauClustering`.
 
 ---
 

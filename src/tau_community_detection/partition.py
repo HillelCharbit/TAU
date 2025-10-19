@@ -4,13 +4,10 @@ from __future__ import annotations
 import multiprocessing as mp
 from dataclasses import dataclass
 import sys
-from pathlib import Path
 from typing import Optional, Sequence
 
 import igraph as ig
 import numpy as np
-
-from .graph import load_graph
 
 _GRAPH: ig.Graph | None = None
 _LEIDEN_ITERATIONS: int = 3
@@ -61,19 +58,14 @@ def configure_shared_state(
 
 
 def init_worker(
-    graph_path: str,
+    graph: ig.Graph,
     leiden_iterations: int,
     leiden_resolution: float,
     weight_attribute: Optional[str],
     default_weight: float,
     seed: Optional[int],
 ) -> None:
-    """Worker initializer to lazily load the graph and RNG in each process."""
-    graph = load_graph(
-        Path(graph_path),
-        weight_attribute=weight_attribute,
-        default_weight=default_weight,
-    )
+    """Worker initializer to configure shared state in each process."""
     worker_rank = 0
     current = mp.current_process()
     # Pool worker identities start at 1; normalise back to 0 so the first

@@ -1,7 +1,6 @@
-"""Utilities for loading graph data into igraph."""
+"""Utilities for working with in-memory graphs for TAU."""
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 import igraph as ig
@@ -23,49 +22,39 @@ def _resolve_weight(
 
 
 def load_graph(
-    path: str | Path,
+    graph_source: ig.Graph | nx.Graph,
     *,
     weight_attribute: Optional[str] = "weight",
     default_weight: float = 1.0,
 ) -> ig.Graph:
-    """Load a graph file (weighted edgelist or adjacency list) into an igraph.Graph.
+    """Normalise an in-memory graph into an ``igraph.Graph``.
 
     Parameters
     ----------
-    path: str | Path
-        Path to a NetworkX-compatible adjacency list or weighted edgelist file.
+    graph_source:
+        Either an ``igraph.Graph`` or a ``networkx.Graph`` that is already loaded in memory.
     """
-    adj_path = Path(path)
-    if not adj_path.exists():
-        raise FileNotFoundError(f"Graph file not found: {adj_path}")
-
-    if adj_path.suffix == ".igpkl":
-        return ig.Graph.Read_Pickle(str(adj_path))
-
-    default_weight = float(default_weight)
-
-    nx_graph: Optional[nx.Graph] = None
-    try:
-        nx_graph = nx.read_weighted_edgelist(adj_path)
-    except (ValueError, nx.NetworkXError, IndexError):
-        nx_graph = None
-
-    if nx_graph is None:
-        nx_graph = nx.read_adjlist(adj_path)
-        is_weighted_source = False
-    else:
-        is_weighted_source = True
-
-    use_weights = weight_attribute is not None
-    if use_weights:
-        for u, v, data in nx_graph.edges(data=True):
-            base = data.get("weight", default_weight)
-            if not is_weighted_source and "weight" not in data:
-                data["weight"] = float(base)
-            weight_val = float(data.get(weight_attribute, base))
-            data[weight_attribute] = weight_val
-
-    return networkx_to_igraph(nx_graph, weight_attribute, default_weight)
+    if isinstance(graph_source, ig.Graph):
+        ig_graph = graph_source.copy()
+        if weight_attribute is not None and weight_attribute not in ig_graph.es.attributes():
+            ig_graph.es[weight_attribute] = [float(default_weight)] * ig_graph.ecount()
+        if (
+            weight_attribute is not None
+            and weight_attribute != "weight"
+            and "weight" not in ig_graph.es.attributes()
+        ):
+            ig_graph.es["weight"] = list(ig_graph.es[weight_attribute])
+        return ig_graph
+    if isinstance(graph_source, nx.Graph):
+        default_weight = float(default_weight)
+        return networkx_to_igraph(
+            graph_source,
+            weight_attribute=weight_attribute,
+            default_weight=default_weight,
+        )
+    raise TypeError(
+        "load_graph expects an igraph.Graph or networkx.Graph instance; file paths are not supported."
+    )
 
 
 def networkx_to_igraph(

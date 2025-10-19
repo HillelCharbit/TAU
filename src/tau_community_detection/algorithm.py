@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 from multiprocessing import Pool, set_start_method
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Iterable, Optional, Sequence, Tuple
 import time
 import weakref
@@ -14,7 +12,7 @@ import numpy as np
 from sklearn.metrics.cluster import pair_confusion_matrix
 
 from .config import TauConfig
-from .graph import load_graph, networkx_to_igraph
+from .graph import networkx_to_igraph
 from .partition import (
     Partition,
     configure_shared_state,
@@ -46,25 +44,20 @@ class _SequentialPool:
 
 def _overlap_memberships(memberships: Iterable[np.ndarray]) -> tuple[np.ndarray, int]:
     """Build a consensus labelling for the provided membership arrays."""
+
     iterator = iter(memberships)
-    first = np.array(next(iterator), copy=True)
-    dtype = first.dtype
-    consensus = first
-    n_nodes = len(consensus)
-    label_count = int(consensus.max()) + 1 if n_nodes else 0
+    consensus = np.array(next(iterator), copy=True)
+    dtype = consensus.dtype
     for membership in iterator:
-        mapping: dict[tuple[int, int], int] = {}
-        next_label = 0
         member_arr = np.asarray(membership, dtype=dtype)
-        for node_id in range(n_nodes):
-            key = (int(consensus[node_id]), int(member_arr[node_id]))
-            label = mapping.get(key)
-            if label is None:
-                label = next_label
-                mapping[key] = label
-                next_label += 1
-            consensus[node_id] = label
-        label_count = next_label
+        if consensus.size == 0:
+            consensus = member_arr.copy()
+            continue
+        base_codes = np.unique(consensus, return_inverse=True)[1]
+        other_codes = np.unique(member_arr, return_inverse=True)[1]
+        pair_codes = (base_codes.astype(np.int64) << 32) | other_codes.astype(np.int64)
+        consensus = np.unique(pair_codes, return_inverse=True)[1].astype(dtype, copy=False)
+    label_count = int(consensus.max()) + 1 if consensus.size else 0
     return consensus, label_count
 
 
@@ -82,25 +75,15 @@ def _crossover_pair(args: tuple[np.ndarray, np.ndarray, float]) -> Partition:
 class TauClustering:
     """Evolutionary community detection for large graphs."""
 
-    def __init__(self, graph_source: str | Path | nx.Graph, population_size, max_generations, config: Optional[TauConfig] = None):
-        self._temp_graph_path: Optional[Path] = None
-        self._temp_graph_finalizer = None
+    def __init__(self, graph_source: ig.Graph | nx.Graph, population_size, max_generations, config: Optional[TauConfig] = None):
         self._pool: Optional[Pool] = None
         self._pool_processes: Optional[int] = None
         self.config = config or TauConfig()
-        self.graph_path, preloaded_graph = self._prepare_graph_source(
+        self.graph = self._prepare_graph_source(
             graph_source,
             weight_attribute=self.config.weight_attribute,
             default_weight=self.config.default_edge_weight,
         )
-        if preloaded_graph is not None:
-            self.graph = preloaded_graph
-        else:
-            self.graph = load_graph(
-                self.graph_path,
-                weight_attribute=self.config.weight_attribute,
-                default_weight=self.config.default_edge_weight,
-            )
         
         self.config.population_size = population_size
         self.config.max_generations = max_generations
@@ -122,28 +105,21 @@ class TauClustering:
     
     def _prepare_graph_source(
         self,
-        graph_source: str | Path | nx.Graph,
+        graph_source: ig.Graph | nx.Graph,
         weight_attribute: Optional[str],
         default_weight: float,
-    ) -> tuple[Path, Optional[ig.Graph]]:
-        if isinstance(graph_source, (str, Path)):
-            return Path(graph_source), None
+    ) -> ig.Graph:
+        if isinstance(graph_source, ig.Graph):
+            return graph_source
         if isinstance(graph_source, nx.Graph):
-            temp_file = NamedTemporaryFile("wb", suffix=".igpkl", delete=False)
-            try:
-                ig_graph = networkx_to_igraph(
-                    graph_source,
-                    weight_attribute=weight_attribute,
-                    default_weight=default_weight,
-                )
-                ig_graph.write_pickle(temp_file.name)
-                temp_path = Path(temp_file.name)
-            finally:
-                temp_file.close()
-            self._temp_graph_path = temp_path
-            self._temp_graph_finalizer = weakref.finalize(self, _cleanup_temp_graph_file, temp_path)
-            return temp_path, ig_graph
-        raise TypeError(f"Unsupported graph source type: {type(graph_source)!r}")
+            return networkx_to_igraph(
+                graph_source,
+                weight_attribute=weight_attribute,
+                default_weight=default_weight,
+            )
+        raise TypeError(
+            "TauClustering expects an igraph.Graph or networkx.Graph instance; file paths are not supported."
+        )
 
     def run(self):
         worker_count = self.config.resolve_worker_count(self.config.population_size)
@@ -162,9 +138,6 @@ class TauClustering:
         best_partition: Optional[Partition] = None
 
         population = self._create_population(pool, self.config.population_size, chunk_size)
-        total_time = []
-        crim_time = []
-        elt_time = []
         for generation in range(1, self.config.max_generations + 1):
             start_time = time.perf_counter()
             optimized = pool.map(optimize_partition, population, chunksize=chunk_size)
@@ -213,15 +186,11 @@ class TauClustering:
             population.extend(immigrants)
 
             gen_elapsed = time.perf_counter() - start_time
-            # print(
-            #     f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
-            #     f'{np.mean(fitnesses):.5f}; Time per generation: {gen_elapsed:.3f}; '
-            #     f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
-            # )
-        # Add current generation's elt_rt and crim_rt to the lists
-        elt_time.append(elt_rt)
-        crim_time.append(crim_rt)
-        total_time.append(gen_elapsed)
+            print(
+                f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
+                f'{np.mean(fitnesses):.5f}; Time per generation: {gen_elapsed:.3f}; '
+                f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
+            )
 
         if best_partition is None:
             raise RuntimeError("TAU clustering failed to produce any solution.")
@@ -230,8 +199,7 @@ class TauClustering:
             self._shutdown_pool()
 
         membership_result = best_partition.membership.astype(np.int64, copy=True)
-        # return membership_result, mod_history
-        return mod_history, total_time, elt_time, crim_time
+        return membership_result, mod_history
 
 
 
@@ -282,7 +250,7 @@ class TauClustering:
             return self._pool
         self._shutdown_pool()
         initargs = (
-            str(self.graph_path),
+            self.graph,
             self.config.leiden_iterations,
             self.config.leiden_resolution,
             self.config.weight_attribute,
@@ -385,7 +353,3 @@ class TauClustering:
         if sample_size is None or graph.vcount() <= sample_size:
             return None
         return self.rng.choice(graph.vcount(), size=sample_size, replace=False)
-
-
-def _cleanup_temp_graph_file(path: Path) -> None:
-    path.unlink(missing_ok=True)
