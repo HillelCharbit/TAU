@@ -87,7 +87,8 @@ def main():
         random_seed=seed,
     )
     clustering = TauClustering(graph, population_size=64, max_generations=50, config=config)
-    # membership, history = clustering.run()
+    # membership, modularity_history = clustering.run()
+    # membership, modularity_history, generation_stats = clustering.run(track_stats=True)
 
     ig_graph = ig.Graph.from_networkx(graph)
     # Save the generated graph as a .graph instance (adjacency list format)

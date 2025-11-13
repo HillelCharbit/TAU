@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: tau_community_detection
-Version: 1.1.3
+Version: 1.1.4
 Summary: Community detection via Louvain/Leiden + Genetic Algorithm
 Author: Hillel Charbit
 Author-email: hillelch@tauex.tau.ac.il
@@ -63,11 +63,14 @@ pip install -e .
 
 ```python
 from tau_community_detection import TauClustering
+import networkx as nx
+
+graph = nx.read_adjlist("path/to/graph.adjlist")
 
 clustering = TauClustering(
-    graph_source="path/to/graph.adjlist",
+    graph,
     population_size=80,
-    max_generation=250,
+    max_generations=250,
 )
 membership, modularity_history = clustering.run()
 
@@ -75,11 +78,17 @@ print("community for node 0:", membership[0])
 print("best modularity:", modularity_history[-1])
 ```
 
+Need detailed per-generation metrics? Call `run(track_stats=True)` to receive
+`(membership, modularity_history, generation_stats)` where `generation_stats`
+is a list of dictionaries containing time and fitness diagnostics.
+```
+
 ### Graph input
 
-`TauClustering` accepts either an igraph/NetworkX graph object or the path to an adjacency
-list that NetworkX can parse (see `nx.read_adjlist`). Nodes are internally remapped to
-contiguous integers to maximise igraph performance.
+`TauClustering` accepts either an `igraph.Graph` or a `networkx.Graph` instance. Nodes are
+internally remapped to contiguous integers to maximise igraph performance. If your data
+resides on disk, load it into memory first (for example with `nx.read_adjlist`) before
+initialising `TauClustering`.
 
 ---
 

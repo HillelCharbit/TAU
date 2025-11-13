@@ -121,7 +121,7 @@ class TauClustering:
             "TauClustering expects an igraph.Graph or networkx.Graph instance; file paths are not supported."
         )
 
-    def run(self):
+    def run(self, track_stats: bool = False):
         worker_count = self.config.resolve_worker_count(self.config.population_size)
         chunk_size = self._resolve_chunk_size(worker_count)
         pool = self._ensure_pool(worker_count)
@@ -133,6 +133,7 @@ class TauClustering:
         offspring_count = max(0, self.config.population_size - elite_count - immigrant_count)
 
         mod_history: list[float] = []
+        generation_stats: list[dict[str, float]] | None = [] if track_stats else None
         last_best_membership: Optional[np.ndarray] = None
         convergence_streak = 0
         best_partition: Optional[Partition] = None
@@ -144,6 +145,7 @@ class TauClustering:
             population[:] = optimized
 
             fitnesses = np.array([p.fitness if p.fitness is not None else float("-inf") for p in population])
+            avg_fitness = float(np.mean(fitnesses)) if fitnesses.size else float("-inf")
             best_idx = int(np.argmax(fitnesses))
             best_partition = population[best_idx]
             best_modularity = float(best_partition.fitness or -np.inf)
@@ -188,9 +190,21 @@ class TauClustering:
             gen_elapsed = time.perf_counter() - start_time
             print(
                 f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
-                f'{np.mean(fitnesses):.5f}; Time per generation: {gen_elapsed:.3f}; '
+                f'{avg_fitness:.5f}; Time per generation: {gen_elapsed:.3f}; '
                 f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
             )
+            if track_stats and generation_stats is not None:
+                generation_stats.append(
+                    {
+                        "generation": generation,
+                        "top_fitness": best_modularity,
+                        "average_fitness": avg_fitness,
+                        "time_per_generation": gen_elapsed,
+                        "convergence": convergence_streak,
+                        "elite_runtime": elt_rt,
+                        "crossover_runtime": crim_rt,
+                    }
+                )
 
         if best_partition is None:
             raise RuntimeError("TAU clustering failed to produce any solution.")
@@ -199,6 +213,8 @@ class TauClustering:
             self._shutdown_pool()
 
         membership_result = best_partition.membership.astype(np.int64, copy=True)
+        if track_stats and generation_stats is not None:
+            return membership_result, mod_history, generation_stats
         return membership_result, mod_history
 
 

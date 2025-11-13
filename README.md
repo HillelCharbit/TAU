@@ -61,6 +61,11 @@ print("community for node 0:", membership[0])
 print("best modularity:", modularity_history[-1])
 ```
 
+Need detailed per-generation metrics? Call `run(track_stats=True)` to receive
+`(membership, modularity_history, generation_stats)` where `generation_stats`
+is a list of dictionaries containing time and fitness diagnostics.
+```
+
 ### Graph input
 
 `TauClustering` accepts either an `igraph.Graph` or a `networkx.Graph` instance. Nodes are

@@ -180,6 +180,11 @@ class Partition:
             subgraph = graph.subgraph(subset)
         else:
             subset = rng.choice(n_edges, size=sample_edges, replace=False)
+            
+            # here add p parameter to the choice function
+            p = graph.es[subset]['weight'] / graph.es.weight.sum()
+            subset = rng.choice(n_edges, size=sample_edges, replace=False, p=p)
+            
             subgraph = graph.subgraph_edges(subset)
 
         membership = np.full(n_nodes, -1, dtype=MEMBERSHIP_DTYPE)
