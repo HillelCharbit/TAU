@@ -12,5 +12,6 @@ src/tau_community_detection.egg-info/dependency_links.txt
 src/tau_community_detection.egg-info/entry_points.txt
 src/tau_community_detection.egg-info/requires.txt
 src/tau_community_detection.egg-info/top_level.txt
+tests/test-real.py
 tests/test.py
 tests/test_weighted.py

@@ -4,6 +4,7 @@ from __future__ import annotations
 from multiprocessing import Pool, set_start_method
 from typing import Iterable, Optional, Sequence, Tuple
 import time
+import warnings
 import weakref
 
 import igraph as ig
@@ -12,7 +13,7 @@ import numpy as np
 from sklearn.metrics.cluster import pair_confusion_matrix
 
 from .config import TauConfig
-from .graph import networkx_to_igraph
+from .graph import load_graph
 from .partition import (
     Partition,
     configure_shared_state,
@@ -75,15 +76,43 @@ def _crossover_pair(args: tuple[np.ndarray, np.ndarray, float]) -> Partition:
 class TauClustering:
     """Evolutionary community detection for large graphs."""
 
-    def __init__(self, graph_source: ig.Graph | nx.Graph, population_size, max_generations, config: Optional[TauConfig] = None):
+    def __init__(
+        self,
+        graph_source: ig.Graph | nx.Graph | str,
+        population_size,
+        max_generations,
+        config: Optional[TauConfig] = None,
+        *,
+        is_weighted: Optional[bool] = None,
+    ):
         self._pool: Optional[Pool] = None
         self._pool_processes: Optional[int] = None
         self.config = config or TauConfig()
-        self.graph = self._prepare_graph_source(
+        config_weighted = self.config.is_weighted
+        init_weighted = is_weighted
+        if (
+            config_weighted is not None
+            and init_weighted is not None
+            and config_weighted != init_weighted
+        ):
+            warnings.warn(
+                f"Mismatch: config.is_weighted={config_weighted} but "
+                f"TauClustering(is_weighted={init_weighted}). Using auto-detection from file format.",
+                stacklevel=2,
+            )
+            config_weighted = None
+            init_weighted = None
+        requested_weighting = init_weighted if init_weighted is not None else config_weighted
+        self.config.is_weighted = config_weighted
+        graph_obj, resolved_is_weighted = self._prepare_graph_source(
             graph_source,
             weight_attribute=self.config.weight_attribute,
             default_weight=self.config.default_edge_weight,
+            is_weighted=requested_weighting,
         )
+        self.graph = graph_obj
+        self._resolved_is_weighted = resolved_is_weighted
+        self.config.is_weighted = resolved_is_weighted
         
         self.config.population_size = population_size
         self.config.max_generations = max_generations
@@ -105,21 +134,20 @@ class TauClustering:
     
     def _prepare_graph_source(
         self,
-        graph_source: ig.Graph | nx.Graph,
+        graph_source: ig.Graph | nx.Graph | str,
         weight_attribute: Optional[str],
         default_weight: float,
-    ) -> ig.Graph:
-        if isinstance(graph_source, ig.Graph):
-            return graph_source
-        if isinstance(graph_source, nx.Graph):
-            return networkx_to_igraph(
-                graph_source,
-                weight_attribute=weight_attribute,
-                default_weight=default_weight,
-            )
-        raise TypeError(
-            "TauClustering expects an igraph.Graph or networkx.Graph instance; file paths are not supported."
+        is_weighted: Optional[bool],
+    ) -> tuple[ig.Graph, bool]:
+        self.graph_path = graph_source if isinstance(graph_source, str) else None
+        graph, resolved = load_graph(
+            graph_source,
+            weight_attribute=weight_attribute,
+            default_weight=default_weight,
+            is_weighted=is_weighted,
+            return_is_weighted=True,
         )
+        return graph, resolved
 
     def run(self, track_stats: bool = False):
         worker_count = self.config.resolve_worker_count(self.config.population_size)
@@ -265,13 +293,15 @@ class TauClustering:
         if self._pool is not None and self._pool_processes == worker_count:
             return self._pool
         self._shutdown_pool()
+        graph_arg = self.graph_path if self.graph_path else self.graph
         initargs = (
-            self.graph,
+            graph_arg,
             self.config.leiden_iterations,
             self.config.leiden_resolution,
             self.config.weight_attribute,
             self.config.default_edge_weight,
             self.config.random_seed,
+            self._resolved_is_weighted,
         )
         try:
             self._pool = Pool(

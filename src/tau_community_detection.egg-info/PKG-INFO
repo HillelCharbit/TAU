@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: tau_community_detection
-Version: 1.1.4
+Version: 1.2.0
 Summary: Community detection via Louvain/Leiden + Genetic Algorithm
 Author: Hillel Charbit
 Author-email: hillelch@tauex.tau.ac.il
@@ -11,7 +11,7 @@ Classifier: Operating System :: OS Independent
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: networkx==3.2.1
-Requires-Dist: numpy==2.0
+Requires-Dist: numpy==1.26.4
 Requires-Dist: python-igraph==0.11.9
 Requires-Dist: scikit-learn==1.6
 
@@ -31,8 +31,8 @@ clustering with configurable hyper-parameters and multiprocessing support.
 
 - **Evolutionary search**: Maintains a population of candidate partitions and applies
   crossover/mutation tailored for graph clustering.
-- **Leiden optimisation**: Refines every candidate with Leiden to ensure modularity gains.
-- **Multiprocessing aware**: Utilises worker pools for population optimisation.
+- **Leiden optimization**: Refines every candidate with Leiden to ensure modularity gains.
+- **Multiprocessing aware**: Utilises worker pools for population optimization.
 - **Deterministic options**: Accepts a user-specified random seed for reproducibility.
 - **Simple API**: Access everything through the `TauClustering` class.
 
@@ -40,7 +40,7 @@ clustering with configurable hyper-parameters and multiprocessing support.
 
 ## Installation
 
-The project targets Python 3.10 or newer (required for slot-based dataclasses).
+The project targets Python 3.10 or newer.
 
 ```bash
 pip install tau-community-detection
@@ -81,31 +81,36 @@ print("best modularity:", modularity_history[-1])
 Need detailed per-generation metrics? Call `run(track_stats=True)` to receive
 `(membership, modularity_history, generation_stats)` where `generation_stats`
 is a list of dictionaries containing time and fitness diagnostics.
-```
-
-### Graph input
-
-`TauClustering` accepts either an `igraph.Graph` or a `networkx.Graph` instance. Nodes are
-internally remapped to contiguous integers to maximise igraph performance. If your data
-resides on disk, load it into memory first (for example with `nx.read_adjlist`) before
-initialising `TauClustering`.
 
 ---
 
-## Example Script
+## Graph input
 
-The repository ships with a runnable example that uses the bundled
-`src/tau_community_detection/examples/example.graph` file. To execute it from the project
-root:
+To optimize for very large graphs or when using many worker processes, it is recommended to pass a file path (e.g., to an `.adjlist` or edge list file) directly to `TauClustering` rather than a pre-loaded graph object. This allows efficient memory sharing.
 
-```bash
-python3 src/tau_community_detection/run_clustering.py
+Supported input:
+- File path to a graph in common NetworkX or igraph format (auto-detects weighting and structure).
+- Already-loaded `networkx.Graph` or `igraph.Graph` objects.
+
+By default, the loader auto-detects whether the graph is weighted based on the file or graph structure. You can override this by setting `is_weighted=True` or `False` when constructing `TauClustering` or its config object; if your override disagrees with the detected type, a warning is issued and auto-detection is used.
+
+**Examples:**
+```python
+from tau_community_detection import TauClustering
+
+# Recommended for large graphs:
+clustering = TauClustering("mygraph.graph", population_size=40, max_generations=30)
+
+# In-memory NetworkX graph:
+import networkx as nx
+g = nx.read_adjlist("mygraph.adjlist")
+clustering2 = TauClustering(g, population_size=40, max_generations=30)
+
+# Force unweighted input (ignore/strip weights if present):
+clustering3 = TauClustering("mygraph.graph", population_size=40, max_generations=30, is_weighted=False)
 ```
+For details on accepted formats, see below.
 
-The script prints the detected membership vector and the modularity score history.
-
-> Note: multiprocessing may be restricted inside some sandboxed environments. Run the
-> example on a local machine for best results.
 
 ---
 

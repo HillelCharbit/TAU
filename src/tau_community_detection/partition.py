@@ -58,14 +58,28 @@ def configure_shared_state(
 
 
 def init_worker(
-    graph: ig.Graph,
+    graph_or_path: ig.Graph | str,
     leiden_iterations: int,
     leiden_resolution: float,
     weight_attribute: Optional[str],
     default_weight: float,
     seed: Optional[int],
+    is_weighted: Optional[bool] = None,
 ) -> None:
     """Worker initializer to configure shared state in each process."""
+    from .graph import load_graph
+    
+    # Load graph from path if string provided
+    if isinstance(graph_or_path, str):
+        graph = load_graph(
+            graph_or_path,
+            weight_attribute=weight_attribute,
+            default_weight=default_weight,
+            is_weighted=is_weighted,
+        )
+    else:
+        graph = graph_or_path
+    
     worker_rank = 0
     current = mp.current_process()
     # Pool worker identities start at 1; normalise back to 0 so the first
@@ -91,7 +105,7 @@ def init_worker(
 def get_graph() -> ig.Graph:
     if _GRAPH is None:
         raise RuntimeError(
-            "Graph not initialised in this process. Call configure_shared_state or init_worker first."
+            "Graph not initialized in this process. Call configure_shared_state or init_worker first."
         )
     return _GRAPH
 
@@ -130,7 +144,7 @@ class Partition:
         rng = get_rng()
         self._sample_fraction = sample_fraction
         if init_membership is None:
-            self.membership = self._initialise_membership(graph, rng, sample_fraction)
+            self.membership = self._initialize_membership(graph, rng, sample_fraction)
         else:
             self.membership = np.asarray(init_membership, dtype=MEMBERSHIP_DTYPE)
         self.n_comms = int(self.membership.max()) + 1 if len(self.membership) else 0
@@ -167,7 +181,7 @@ class Partition:
         )
 
     @staticmethod
-    def _initialise_membership(
+    def _initialize_membership(
         graph: ig.Graph, rng: np.random.Generator, sample_fraction: float
     ) -> np.ndarray:
         n_nodes = graph.vcount()
@@ -179,11 +193,14 @@ class Partition:
             subset = rng.choice(n_nodes, size=sample_nodes, replace=False)
             subgraph = graph.subgraph(subset)
         else:
-            subset = rng.choice(n_edges, size=sample_edges, replace=False)
-            
-            # here add p parameter to the choice function
-            p = graph.es[subset]['weight'] / graph.es.weight.sum()
-            subset = rng.choice(n_edges, size=sample_edges, replace=False, p=p)
+            # Sample edges with probability proportional to weight
+            weights = _resolve_weights(graph)
+            if weights is not None:
+                weights_array = np.array(weights)
+                p = weights_array / weights_array.sum()
+                subset = rng.choice(n_edges, size=sample_edges, replace=False, p=p)
+            else:
+                subset = rng.choice(n_edges, size=sample_edges, replace=False)
             
             subgraph = graph.subgraph_edges(subset)
 
