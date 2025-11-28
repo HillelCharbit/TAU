@@ -23,6 +23,10 @@ def _resolve_weight(
 
 def _detect_file_format(path: str) -> tuple[str, bool]:
     """Peek at a file on disk and infer adjacency/edge list format."""
+    total_lines = 0
+    numeric_three_col = True
+    all_three_col = True
+    all_two_col = True
     with open(path, "rt", encoding="utf-8") as handle:
         for raw_line in handle:
             line = raw_line.split("#", 1)[0].strip()
@@ -30,15 +34,24 @@ def _detect_file_format(path: str) -> tuple[str, bool]:
                 continue
             columns = line.split()
             count = len(columns)
+            total_lines += 1
             if count >= 4:
                 return "adjlist", False
             if count == 3:
+                all_two_col = False
                 try:
                     float(columns[2])
                 except ValueError:
-                    return "adjlist", False
-                return "edgelist", True
-    return "edgelist", False
+                    numeric_three_col = False
+            else:
+                all_three_col = False
+                if count != 2:
+                    all_two_col = False
+    if total_lines and all_three_col and numeric_three_col:
+        return "edgelist", True
+    if total_lines and all_two_col:
+        return "edgelist", False
+    return "adjlist", False
 
 
 def _nx_has_weights(graph: nx.Graph, weight_attribute: Optional[str]) -> bool:
