@@ -1,4 +1,4 @@
-"""Partition representation and related multiprocessing helpers."""
+"""Partition representation and worker helpers."""
 from __future__ import annotations
 
 import multiprocessing as mp
@@ -9,103 +9,57 @@ from typing import Optional, Sequence
 import igraph as ig
 import numpy as np
 
-_GRAPH: ig.Graph | None = None
-_LEIDEN_ITERATIONS: int = 3
-_LEIDEN_RESOLUTION: float = 1.0
-_LEIDEN_WEIGHT_ATTRIBUTE: Optional[str] = None
-_LEIDEN_DEFAULT_WEIGHT: float = 1.0
-_LEIDEN_MAIN_WEIGHTS: Optional[list[float]] = None
-_RNG: np.random.Generator | None = None
+# Global worker state
+_GRAPH: Optional[ig.Graph] = None
+_LEIDEN_ITERS: int = 3
+_LEIDEN_RES: float = 1.0
+_WEIGHTS: Optional[list[float]] = None
+_RNG: Optional[np.random.Generator] = None
 
 MEMBERSHIP_DTYPE = np.int32
 
 
-def configure_shared_state(
+def configure_main(
     graph: ig.Graph,
-    leiden_iterations: int,
-    leiden_resolution: float,
-    weight_attribute: Optional[str],
-    default_weight: float,
+    leiden_iters: int,
+    leiden_res: float,
     seed: Optional[int] = None,
 ) -> None:
-    """Configure global state for the current process (typically the main process)."""
-    global _GRAPH, _LEIDEN_ITERATIONS, _LEIDEN_RESOLUTION, _LEIDEN_WEIGHT_ATTRIBUTE
-    global _LEIDEN_DEFAULT_WEIGHT, _LEIDEN_MAIN_WEIGHTS, _RNG
+    """Configure state for main process."""
+    global _GRAPH, _LEIDEN_ITERS, _LEIDEN_RES, _WEIGHTS, _RNG
     _GRAPH = graph
-    _LEIDEN_ITERATIONS = leiden_iterations
-    _LEIDEN_RESOLUTION = leiden_resolution
-    _LEIDEN_DEFAULT_WEIGHT = float(default_weight)
-
-    resolved_attr: Optional[str]
-    weights_cache: Optional[list[float]]
-    if weight_attribute and weight_attribute in graph.es.attributes():
-        weights_iter = [float(w) for w in graph.es[weight_attribute]]
-        # If all edges carry the default weight we can treat the graph as unweighted
-        default_val = _LEIDEN_DEFAULT_WEIGHT
-        if all(abs(w - default_val) <= 1e-12 for w in weights_iter):
-            resolved_attr = None
-            weights_cache = None
-        else:
-            resolved_attr = weight_attribute
-            weights_cache = weights_iter
-    else:
-        resolved_attr = None
-        weights_cache = None
-
-    _LEIDEN_WEIGHT_ATTRIBUTE = resolved_attr
-    _LEIDEN_MAIN_WEIGHTS = weights_cache
+    _LEIDEN_ITERS = leiden_iters
+    _LEIDEN_RES = leiden_res
+    _WEIGHTS = list(graph.es["weight"]) if "weight" in graph.es.attributes() else None
     _RNG = np.random.default_rng(seed)
 
 
 def init_worker(
-    graph_or_path: ig.Graph | str,
-    leiden_iterations: int,
-    leiden_resolution: float,
-    weight_attribute: Optional[str],
+    graph_path: str,
+    leiden_iters: int,
+    leiden_res: float,
+    is_weighted: bool,
     default_weight: float,
     seed: Optional[int],
-    is_weighted: Optional[bool] = None,
 ) -> None:
-    """Worker initializer to configure shared state in each process."""
-    from .graph import load_graph
+    """Worker initializer — loads graph from path."""
+    from .graph import load_graph_worker
     
-    # Load graph from path if string provided
-    if isinstance(graph_or_path, str):
-        graph = load_graph(
-            graph_or_path,
-            weight_attribute=weight_attribute,
-            default_weight=default_weight,
-            is_weighted=is_weighted,
-        )
-    else:
-        graph = graph_or_path
+    graph = load_graph_worker(graph_path, default_weight=default_weight, is_weighted=is_weighted)
     
+    # Derive worker seed from rank
     worker_rank = 0
-    current = mp.current_process()
-    # Pool worker identities start at 1; normalise back to 0 so the first
-    # worker reuses the user-provided seed. This keeps runs reproducible while
-    # still spacing out additional workers deterministically.
-    if current._identity:  # type: ignore[attr-defined]
-        worker_rank = current._identity[0] - 1
-    else:
-        suffix = current.name.rsplit("-", 1)
-        if len(suffix) == 2 and suffix[1].isdigit():
-            worker_rank = int(suffix[1]) - 1
-    process_seed = None if seed is None else seed + worker_rank
-    configure_shared_state(
-        graph,
-        leiden_iterations,
-        leiden_resolution,
-        weight_attribute,
-        default_weight,
-        process_seed,
-    )
+    proc = mp.current_process()
+    if proc._identity:
+        worker_rank = proc._identity[0] - 1
+    
+    configure_main(graph, leiden_iters, leiden_res, None if seed is None else seed + worker_rank)
 
 
 def get_graph() -> ig.Graph:
     if _GRAPH is None:
         raise RuntimeError(
-            "Graph not initialized in this process. Call configure_shared_state or init_worker first."
+            "Graph not initialized in this process. Call configure_main or init_worker first."
         )
     return _GRAPH
 
@@ -118,12 +72,12 @@ def get_rng() -> np.random.Generator:
 
 
 def _resolve_weights(graph: ig.Graph) -> Optional[list[float]]:
-    if _LEIDEN_WEIGHT_ATTRIBUTE is None:
+    if _WEIGHTS is None and "weight" not in graph.es.attributes():
         return None
     if graph is _GRAPH:
-        return _LEIDEN_MAIN_WEIGHTS
-    if _LEIDEN_WEIGHT_ATTRIBUTE in graph.es.attributes():
-        return [float(w) for w in graph.es[_LEIDEN_WEIGHT_ATTRIBUTE]]
+        return _WEIGHTS
+    if "weight" in graph.es.attributes():
+        return [float(w) for w in graph.es["weight"]]
     return None
 
 
@@ -208,7 +162,7 @@ class Partition:
         sub_nodes = [vertex.index for vertex in subgraph.vs]
         sub_partition = subgraph.community_leiden(
             objective_function="modularity",
-            resolution_parameter=_LEIDEN_RESOLUTION,
+            resolution_parameter=_LEIDEN_RES,
             weights=_resolve_weights(subgraph),
         )
         local_membership = np.asarray(sub_partition.membership, dtype=MEMBERSHIP_DTYPE)
@@ -224,8 +178,8 @@ class Partition:
         partition = graph.community_leiden(
             objective_function="modularity",
             initial_membership=self.membership,
-            n_iterations=_LEIDEN_ITERATIONS,
-            resolution_parameter=_LEIDEN_RESOLUTION,
+            n_iterations=_LEIDEN_ITERS,
+            resolution_parameter=_LEIDEN_RES,
             weights=_resolve_weights(graph),
         )
         self.membership = np.asarray(partition.membership, dtype=MEMBERSHIP_DTYPE)

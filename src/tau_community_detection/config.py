@@ -34,6 +34,7 @@ class TauConfig:
     reuse_worker_pool: bool = True
     sample_fraction_range: Tuple[float, float] = (0.2, 0.9)
     random_seed: Optional[int] = None
+    verbose: bool = False
 
     def resolve_worker_count(self, population_size: int) -> int:
         from os import cpu_count

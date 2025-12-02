@@ -4,7 +4,6 @@ from __future__ import annotations
 from multiprocessing import Pool, set_start_method
 from typing import Iterable, Optional, Sequence, Tuple
 import time
-import warnings
 import weakref
 
 import igraph as ig
@@ -16,7 +15,7 @@ from .config import TauConfig
 from .graph import load_graph
 from .partition import (
     Partition,
-    configure_shared_state,
+    configure_main,
     create_partition,
     get_graph,
     init_worker,
@@ -75,79 +74,46 @@ def _crossover_pair(args: tuple[np.ndarray, np.ndarray, float]) -> Partition:
 
 class TauClustering:
     """Evolutionary community detection for large graphs."""
-
+    
     def __init__(
         self,
         graph_source: ig.Graph | nx.Graph | str,
-        population_size,
-        max_generations,
+        population_size: int,
+        max_generations: int,
         config: Optional[TauConfig] = None,
-        *,
-        is_weighted: Optional[bool] = None,
     ):
         self._pool: Optional[Pool] = None
         self._pool_processes: Optional[int] = None
         self.config = config or TauConfig()
-        config_weighted = self.config.is_weighted
-        init_weighted = is_weighted
-        if (
-            config_weighted is not None
-            and init_weighted is not None
-            and config_weighted != init_weighted
-        ):
-            warnings.warn(
-                f"Mismatch: config.is_weighted={config_weighted} but "
-                f"TauClustering(is_weighted={init_weighted}). Using auto-detection from file format.",
-                stacklevel=2,
-            )
-            config_weighted = None
-            init_weighted = None
-        requested_weighting = init_weighted if init_weighted is not None else config_weighted
-        self.config.is_weighted = config_weighted
-        graph_obj, resolved_is_weighted = self._prepare_graph_source(
-            graph_source,
-            weight_attribute=self.config.weight_attribute,
-            default_weight=self.config.default_edge_weight,
-            is_weighted=requested_weighting,
-        )
-        self.graph = graph_obj
-        self._resolved_is_weighted = resolved_is_weighted
-        self.config.is_weighted = resolved_is_weighted
-        
         self.config.population_size = population_size
         self.config.max_generations = max_generations
 
-        configure_shared_state(
+        # Single load_graph call — returns (graph, is_weighted, path_for_workers)
+        self.graph, self._resolved_is_weighted, self._graph_path = load_graph(
+            graph_source,
+            weight_attr=self.config.weight_attribute,
+            default_weight=self.config.default_edge_weight,
+            is_weighted=self.config.is_weighted,
+        )
+        self.config.is_weighted = self._resolved_is_weighted  # update config with resolved value
+
+        configure_main(
             self.graph,
             self.config.leiden_iterations,
             self.config.leiden_resolution,
-            self.config.weight_attribute,
-            self.config.default_edge_weight,
             self.config.random_seed,
         )
+        
         self.rng = np.random.default_rng(self.config.random_seed)
-        self.sim_indices: Optional[np.ndarray] = self._init_similarity_indices()
+        self.sim_indices = self._init_similarity_indices()
         self.selection_probs = self._selection_probabilities(self.config.population_size)
-
         self._pool_finalizer = weakref.finalize(self, TauClustering._finalize_pool, weakref.proxy(self))
-        print(f"Main parameter values: pop_size={self.config.population_size}, workers={self.config.resolve_worker_count(self.config.population_size)}, max_generations={self.config.max_generations}")
-    
-    def _prepare_graph_source(
-        self,
-        graph_source: ig.Graph | nx.Graph | str,
-        weight_attribute: Optional[str],
-        default_weight: float,
-        is_weighted: Optional[bool],
-    ) -> tuple[ig.Graph, bool]:
-        self.graph_path = graph_source if isinstance(graph_source, str) else None
-        graph, resolved = load_graph(
-            graph_source,
-            weight_attribute=weight_attribute,
-            default_weight=default_weight,
-            is_weighted=is_weighted,
-            return_is_weighted=True,
+        
+        self._log(
+                f"Main parameter values: pop_size={self.config.population_size}, "
+                f"workers={self.config.resolve_worker_count(self.config.population_size)}, "
+                f"max_generations={self.config.max_generations}"
         )
-        return graph, resolved
 
     def run(self, track_stats: bool = False):
         worker_count = self.config.resolve_worker_count(self.config.population_size)
@@ -216,7 +182,7 @@ class TauClustering:
             population.extend(immigrants)
 
             gen_elapsed = time.perf_counter() - start_time
-            print(
+            self._log(
                 f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
                 f'{avg_fitness:.5f}; Time per generation: {gen_elapsed:.3f}; '
                 f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
@@ -246,7 +212,17 @@ class TauClustering:
         return membership_result, mod_history
 
 
+    def __enter__(self) -> "TauClustering":
+        return self
 
+    def __exit__(self, *_) -> None:
+        self._shutdown_pool()
+
+    def _log(self, message: str) -> None:
+        if self.config.verbose:
+            print(message)
+
+    
     def _create_population(self, pool: Pool, size: int, chunk_size: int) -> list[Partition]:
         if size <= 0:
             return []
@@ -280,66 +256,6 @@ class TauClustering:
             offspring.extend(pool.map(_crossover_pair, crossover_jobs, chunksize=chunk_size))
         return offspring
 
-    def close(self) -> None:
-        self._shutdown_pool()
-
-    def __enter__(self) -> "TauClustering":
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
-
-    def _ensure_pool(self, worker_count: int) -> Pool:
-        if self._pool is not None and self._pool_processes == worker_count:
-            return self._pool
-        self._shutdown_pool()
-        graph_arg = self.graph_path if self.graph_path else self.graph
-        initargs = (
-            graph_arg,
-            self.config.leiden_iterations,
-            self.config.leiden_resolution,
-            self.config.weight_attribute,
-            self.config.default_edge_weight,
-            self.config.random_seed,
-            self._resolved_is_weighted,
-        )
-        try:
-            self._pool = Pool(
-                worker_count,
-                initializer=init_worker,
-                initargs=initargs,
-            )
-            self._pool_processes = worker_count
-        except PermissionError:
-            print("PermissionError creating multiprocessing pool; falling back to sequential execution.")
-            self._pool = _SequentialPool()
-            self._pool_processes = 1
-        return self._pool
-
-    def _shutdown_pool(self) -> None:
-        if self._pool is None:
-            return
-        self._pool.close()
-        self._pool.join()
-        self._pool = None
-        self._pool_processes = None
-
-    def _resolve_chunk_size(self, worker_count: int) -> int:
-        explicit = self.config.worker_chunk_size
-        if explicit is not None and explicit > 0:
-            return int(explicit)
-        if worker_count <= 0:
-            return 1
-        approx = max(1, (self.config.population_size + worker_count - 1) // worker_count)
-        return approx
-
-    @staticmethod
-    def _finalize_pool(instance_proxy: "TauClustering") -> None:
-        try:
-            instance_proxy._shutdown_pool()
-        except ReferenceError:
-            pass
-
     def _elitist_selection(
         self,
         population: Sequence[Partition],
@@ -367,6 +283,55 @@ class TauClustering:
                 elites.extend(int(i) for i in np.atleast_1d(fill))
         return elites
 
+
+    def _ensure_pool(self, worker_count: int) -> Pool:
+        if self._pool is not None and self._pool_processes == worker_count:
+            return self._pool
+        self._shutdown_pool()
+        
+        initargs = (
+            self._graph_path,  # always a path now
+            self.config.leiden_iterations,
+            self.config.leiden_resolution,
+            self._resolved_is_weighted,
+            self.config.default_edge_weight,
+            self.config.random_seed,
+        )
+        
+        try:
+            self._pool = Pool(worker_count, initializer=init_worker, initargs=initargs)
+            self._pool_processes = worker_count
+        except PermissionError:
+            self._log("Falling back to sequential execution")
+            self._pool = _SequentialPool()
+            self._pool_processes = 1
+        return self._pool
+
+    @staticmethod
+    def _finalize_pool(instance_proxy: "TauClustering") -> None:
+        try:
+            instance_proxy._shutdown_pool()
+        except ReferenceError:
+            pass
+
+    def _shutdown_pool(self) -> None:
+        if self._pool is None:
+            return
+        self._pool.close()
+        self._pool.join()
+        self._pool = None
+        self._pool_processes = None
+
+    def _resolve_chunk_size(self, worker_count: int) -> int:
+        explicit = self.config.worker_chunk_size
+        if explicit is not None and explicit > 0:
+            return int(explicit)
+        if worker_count <= 0:
+            return 1
+        approx = max(1, (self.config.population_size + worker_count - 1) // worker_count)
+        return approx
+
+
     def _similarity(self, a: Partition, b: Partition) -> float:
         return self._similarity_arrays(a.membership, b.membership)
 
@@ -389,9 +354,6 @@ class TauClustering:
         if weights_sum == 0:
             return np.full(population_size, 1.0 / population_size)
         return weights / weights_sum
-
-    def _overlap(self, memberships: Iterable[np.ndarray]) -> Tuple[np.ndarray, int]:
-        return _overlap_memberships(memberships)
 
     def _init_similarity_indices(self) -> Optional[np.ndarray]:
         sample_size = self.config.sim_sample_size

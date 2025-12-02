@@ -75,7 +75,7 @@ Supported input:
 - File path to a graph in common NetworkX or igraph format (auto-detects weighting and structure).
 - Already-loaded `networkx.Graph` or `igraph.Graph` objects.
 
-By default, the loader auto-detects whether the graph is weighted based on the file or graph structure. You can override this by setting `is_weighted=True` or `False` when constructing `TauClustering` or its config object; if your override disagrees with the detected type, a warning is issued and auto-detection is used.
+By default, the loader auto-detects whether the graph is weighted based on the file or graph structure. You can override this by setting `TauConfig(is_weighted=True/False)` when constructing `TauClustering`; if your override disagrees with the detected type, a warning is issued and auto-detection is used.
 
 **Examples:**
 ```python
@@ -89,8 +89,10 @@ import networkx as nx
 g = nx.read_adjlist("mygraph.adjlist")
 clustering2 = TauClustering(g, population_size=40, max_generations=30)
 
-# Force unweighted input (ignore/strip weights if present):
-clustering3 = TauClustering("mygraph.graph", population_size=40, max_generations=30, is_weighted=False)
+# Force unweighted input (ignore/strip weights if present) via config:
+from tau_community_detection import TauConfig
+custom_config = TauConfig(is_weighted=False)
+clustering3 = TauClustering("mygraph.graph", population_size=40, max_generations=30, config=custom_config)
 ```
 For details on accepted formats, see below.
 
