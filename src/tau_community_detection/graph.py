@@ -1,53 +1,20 @@
-""" Graph loading for TAU."""
+"""Graph loading for TAU."""
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import igraph as ig
 import networkx as nx
 
-_TEMP_GRAPH_PATH: Optional[Path] = None
+_TEMP_GRAPH_PATH: Path | None = None
 
-def _detect_weighted(path: str) -> bool:
-    """Check if edgelist file has weight column (3 numeric columns)."""
-    with open(path, "r") as f:
-        for line in f:
-            line = line.split("#", 1)[0].strip()
-            if not line:
-                continue
-            cols = line.split()
-            if len(cols) >= 3:
-                try:
-                    float(cols[2])
-                    return True
-                except ValueError:
-                    pass
-            return False
-    return False
-
-def _graph_to_temp_file(graph: ig.Graph, weighted: bool) -> str:
-    """Write igraph to temp NCOL file, return path."""
-    global _TEMP_GRAPH_PATH
-    fd = tempfile.NamedTemporaryFile(mode="w", suffix=".ncol", delete=False)
-    _TEMP_GRAPH_PATH = Path(fd.name)
-    
-    weights = graph.es["weight"] if weighted and "weight" in graph.es.attributes() else None
-    for i, edge in enumerate(graph.es):
-        src, tgt = edge.tuple
-        if weights:
-            fd.write(f"{src} {tgt} {weights[i]}\n")
-        else:
-            fd.write(f"{src} {tgt}\n")
-    fd.close()
-    return str(_TEMP_GRAPH_PATH)
 
 def load_graph(
     source: ig.Graph | nx.Graph | str,
     weight_attr: str = "weight",
     default_weight: float = 1.0,
-    is_weighted: Optional[bool] = None,
+    is_weighted: bool | None = None,
 ) -> tuple[ig.Graph, bool, str]:
     """
     Load graph from path or in-memory object.
@@ -58,67 +25,146 @@ def load_graph(
     
     Supported file formats:
         - Edgelist/NCOL (.graph, .edgelist, .txt, etc.): "src tgt [weight]"
-        - Adjacency list (.adjlist, .adj)
+        - Adjacency list (.adjlist, .adj): "src neighbor1 neighbor2 ..."
     
     For other formats (.net, .graphml, .gml), load with igraph/networkx 
     first and pass the graph object directly.
     """
-    # NetworkX graph
+    # Handle in-memory graphs
     if isinstance(source, nx.Graph):
-        node_map = {n: i for i, n in enumerate(source.nodes())}
-        edges = [(node_map[u], node_map[v]) for u, v in source.edges()]
-        graph = ig.Graph(n=len(node_map), edges=edges, directed=source.is_directed())
-        if weight_attr:
-            graph.es["weight"] = [
-                float(source[u][v].get(weight_attr, source[u][v].get("weight", default_weight)))
-                for u, v in source.edges()
-            ]
+        # Detect weights from original NetworkX graph BEFORE conversion
         detected = any(weight_attr in d or "weight" in d for _, _, d in source.edges(data=True))
-        weighted = detected if is_weighted is None else is_weighted
-        if not weighted:
-            graph.es["weight"] = [default_weight] * graph.ecount()
-        path = _graph_to_temp_file(graph, weighted)
-        return graph, weighted, path
+        graph = ig.Graph.from_networkx(source)
+        
+        # Rename custom weight attribute to "weight" for consistency
+        if weight_attr != "weight" and weight_attr in graph.es.attributes():
+            graph.es["weight"] = graph.es[weight_attr]
 
-    # igraph graph
-    if isinstance(source, ig.Graph):
+    elif isinstance(source, ig.Graph):
         graph = source.copy()
         detected = "weight" in graph.es.attributes()
+
+    else:
+        # String path - detect format and load
+        if _is_adjlist_format(source):
+            nx_graph = nx.read_adjlist(source)
+            # Remove isolated nodes that might come from empty lines
+            nx_graph.remove_nodes_from(list(nx.isolates(nx_graph)))
+            return load_graph(
+                nx_graph,
+                weight_attr=weight_attr,
+                default_weight=default_weight,
+                is_weighted=is_weighted,
+            )
+
+        detected = _detect_weighted(source)
         weighted = detected if is_weighted is None else is_weighted
-        if not detected or not weighted:
+
+        # igraph.Read_Ncol doesn't handle comments - preprocess if needed
+        clean_path = _preprocess_edgelist(source)
+
+        try:
+            graph = ig.Graph.Read_Ncol(clean_path, weights=detected, directed=False)
+        finally:
+            # Clean up temp file if we created one
+            if clean_path != source:
+                Path(clean_path).unlink(missing_ok=True)
+
+        # Apply default weights if needed
+        if not detected:
             graph.es["weight"] = [default_weight] * graph.ecount()
-        path = _graph_to_temp_file(graph, weighted)
-        return graph, weighted, path
 
-    # String path
-    path = source
-    suffix = Path(path).suffix.lower()
-    
-    if suffix in {".adjlist", ".adj"}:
-        nx_graph = nx.read_adjlist(path)
-        return load_graph(nx_graph, weight_attr=weight_attr, default_weight=default_weight, is_weighted=is_weighted)
+        return graph, weighted, source
 
-    detected = _detect_weighted(path)
+    # Finalize in-memory graph cases
     weighted = detected if is_weighted is None else is_weighted
     
-    if weighted:
-        graph = ig.Graph.Read_Ncol(path, weights=True, directed=False)
-    else:
-        graph = ig.Graph.Read_Ncol(path, weights=False, directed=False)
+    # Set weights: keep existing only if detected AND we want weighted
+    if not (weighted and detected):
         graph.es["weight"] = [default_weight] * graph.ecount()
-    
-    return graph, weighted, path
+
+    return graph, weighted, _graph_to_temp_file(graph, weighted)
 
 def load_graph_worker(
     path: str,
-    weight_attr: str = "weight", 
     default_weight: float = 1.0,
     is_weighted: bool = False,
 ) -> ig.Graph:
     """Worker-side graph loading. Simple path-only load."""
-    if is_weighted:
-        graph = ig.Graph.Read_Ncol(path, weights=True, directed=False)
-    else:
-        graph = ig.Graph.Read_Ncol(path, weights=False, directed=False)
+    graph = ig.Graph.Read_Ncol(path, weights=is_weighted, directed=False)
+    if not is_weighted:
         graph.es["weight"] = [default_weight] * graph.ecount()
     return graph
+
+def _is_adjlist_format(path: str) -> bool:
+    """Check if file is adjacency list format (>3 columns on first data line)."""
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    return len(line.split()) > 3
+    except Exception:
+        pass
+    return False
+
+def _detect_weighted(path: str) -> bool:
+    """Check if edgelist file has weight column (3rd column is numeric)."""
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.split("#", 1)[0].strip()
+                if not line:
+                    continue
+                cols = line.split()
+                if len(cols) >= 3:
+                    float(cols[2])
+                    return True
+                return False
+    except (OSError, ValueError):
+        pass
+    return False
+
+def _preprocess_edgelist(path: str) -> str:
+    """Remove comments and blank lines from edgelist. Returns path (original or temp)."""
+    needs_cleaning = False
+
+    # Check if cleaning is needed
+    try:
+        with open(path) as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or "#" in line:
+                    needs_cleaning = True
+                    break
+    except Exception:
+        return path
+
+    if not needs_cleaning:
+        return path
+
+    # Create cleaned temp file
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".ncol", delete=False) as fd:
+        with open(path) as f:
+            for line in f:
+                clean = line.split("#", 1)[0].strip()
+                if clean:
+                    fd.write(clean + "\n")
+        return fd.name
+
+def _graph_to_temp_file(graph: ig.Graph, weighted: bool) -> str:
+    """Write igraph to temp NCOL file, return path."""
+    global _TEMP_GRAPH_PATH
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".ncol", delete=False) as fd:
+        _TEMP_GRAPH_PATH = Path(fd.name)
+        weights = graph.es["weight"] if weighted and "weight" in graph.es.attributes() else None
+
+        for i, edge in enumerate(graph.es):
+            src, tgt = edge.tuple
+            if weights:
+                fd.write(f"{src} {tgt} {weights[i]}\n")
+            else:
+                fd.write(f"{src} {tgt}\n")
+
+    return str(_TEMP_GRAPH_PATH)

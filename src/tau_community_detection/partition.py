@@ -33,7 +33,6 @@ def configure_main(
     _WEIGHTS = list(graph.es["weight"]) if "weight" in graph.es.attributes() else None
     _RNG = np.random.default_rng(seed)
 
-
 def init_worker(
     graph_path: str,
     leiden_iters: int,
@@ -43,6 +42,9 @@ def init_worker(
     seed: Optional[int],
 ) -> None:
     """Worker initializer — loads graph from path."""
+    import os
+    os.environ['MPLBACKEND'] = 'Agg'
+    
     from .graph import load_graph_worker
     
     graph = load_graph_worker(graph_path, default_weight=default_weight, is_weighted=is_weighted)
@@ -54,7 +56,6 @@ def init_worker(
         worker_rank = proc._identity[0] - 1
     
     configure_main(graph, leiden_iters, leiden_res, None if seed is None else seed + worker_rank)
-
 
 def get_graph() -> ig.Graph:
     if _GRAPH is None:

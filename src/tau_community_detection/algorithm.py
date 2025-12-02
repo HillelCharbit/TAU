@@ -107,7 +107,6 @@ class TauClustering:
         self.rng = np.random.default_rng(self.config.random_seed)
         self.sim_indices = self._init_similarity_indices()
         self.selection_probs = self._selection_probabilities(self.config.population_size)
-        self._pool_finalizer = weakref.finalize(self, TauClustering._finalize_pool, weakref.proxy(self))
         
         self._log(
                 f"Main parameter values: pop_size={self.config.population_size}, "
@@ -217,6 +216,9 @@ class TauClustering:
 
     def __exit__(self, *_) -> None:
         self._shutdown_pool()
+        
+    def __del__(self):
+        self._shutdown_pool()
 
     def _log(self, message: str) -> None:
         if self.config.verbose:
@@ -306,13 +308,6 @@ class TauClustering:
             self._pool = _SequentialPool()
             self._pool_processes = 1
         return self._pool
-
-    @staticmethod
-    def _finalize_pool(instance_proxy: "TauClustering") -> None:
-        try:
-            instance_proxy._shutdown_pool()
-        except ReferenceError:
-            pass
 
     def _shutdown_pool(self) -> None:
         if self._pool is None:
