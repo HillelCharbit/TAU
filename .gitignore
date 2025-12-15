@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized
 __pycache__/
 *.py[cod]
 *$py.class
@@ -13,19 +13,22 @@ dist/
 .venv/
 venv/
 
-# IDEs and editors
+# IDEs
 .idea/
 .vscode/
 *.code-workspace
 
-# Testing artifacts
+# Testing & type checking
 .pytest_cache/
 .mypy_cache/
-coverage.xml
+.ruff_cache/
 .coverage*
+coverage.xml
 
-# Logs and OS clutter
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs & OS
 *.log
 .DS_Store
 Thumbs.db
-
