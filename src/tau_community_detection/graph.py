@@ -35,7 +35,11 @@ def load_graph(
         # Detect weights from original NetworkX graph BEFORE conversion
         detected = any(weight_attr in d or "weight" in d for _, _, d in source.edges(data=True))
         graph = ig.Graph.from_networkx(source)
-        
+
+        if "_nx_name" in graph.vs.attributes():
+            graph.vs["name"] = list(graph.vs["_nx_name"])
+            del graph.vs["_nx_name"]
+
         # Rename custom weight attribute to "weight" for consistency
         if weight_attr != "weight" and weight_attr in graph.es.attributes():
             graph.es["weight"] = graph.es[weight_attr]
@@ -43,6 +47,7 @@ def load_graph(
     elif isinstance(source, ig.Graph):
         graph = source.copy()
         detected = "weight" in graph.es.attributes()
+        _ensure_vertex_names(graph)
 
     else:
         # String path - detect format and load
@@ -74,6 +79,7 @@ def load_graph(
         if not detected:
             graph.es["weight"] = [default_weight] * graph.ecount()
 
+        _ensure_vertex_names(graph)
         return graph, weighted, source
 
     # Finalize in-memory graph cases
@@ -83,6 +89,7 @@ def load_graph(
     if not (weighted and detected):
         graph.es["weight"] = [default_weight] * graph.ecount()
 
+    _ensure_vertex_names(graph)
     return graph, weighted, _graph_to_temp_file(graph, weighted)
 
 def load_graph_worker(
@@ -91,7 +98,11 @@ def load_graph_worker(
     is_weighted: bool = False,
 ) -> ig.Graph:
     """Worker-side graph loading. Simple path-only load."""
-    graph = ig.Graph.Read_Ncol(path, weights=is_weighted, directed=False)
+    path_obj = Path(path)
+    if path_obj.suffix == ".igraph":
+        graph = ig.Graph.Read_Pickle(str(path_obj))
+    else:
+        graph = ig.Graph.Read_Ncol(path, weights=is_weighted, directed=False)
     if not is_weighted:
         graph.es["weight"] = [default_weight] * graph.ecount()
     return graph
@@ -153,18 +164,21 @@ def _preprocess_edgelist(path: str) -> str:
         return fd.name
 
 def _graph_to_temp_file(graph: ig.Graph, weighted: bool) -> str:
-    """Write igraph to temp NCOL file, return path."""
+    """Write igraph to temp pickle file so workers can reload identical graph."""
     global _TEMP_GRAPH_PATH
+    _ = weighted  # weighted preserved for backwards compatibility
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".ncol", delete=False) as fd:
+    with tempfile.NamedTemporaryFile(suffix=".igraph", delete=False) as fd:
         _TEMP_GRAPH_PATH = Path(fd.name)
-        weights = graph.es["weight"] if weighted and "weight" in graph.es.attributes() else None
 
-        for i, edge in enumerate(graph.es):
-            src, tgt = edge.tuple
-            if weights:
-                fd.write(f"{src} {tgt} {weights[i]}\n")
-            else:
-                fd.write(f"{src} {tgt}\n")
-
+    graph.write_pickle(str(_TEMP_GRAPH_PATH))
     return str(_TEMP_GRAPH_PATH)
+
+
+def _ensure_vertex_names(graph: ig.Graph) -> None:
+    """Ensure the graph has a 'name' vertex attribute aligned with current order."""
+    if "name" in graph.vs.attributes():
+        names = graph.vs["name"]
+        if len(names) == graph.vcount():
+            return
+    graph.vs["name"] = [str(idx) for idx in range(graph.vcount())]

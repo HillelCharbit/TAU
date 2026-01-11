@@ -18,18 +18,18 @@ def main():
 
     print("--- Running Path ---")
     with TauClustering(cer_path, config=config, population_size=16, max_generations=2) as tau:
-        partition_tmp, q_tmp = tau.run()
-    print(f"Q: {q_tmp}")
+        clustering_tmp = tau.run()
+    print(f"Q: {clustering_tmp.modularity}")
 
     print("--- Running NetworkX ---")
     with TauClustering(G_nx, config=config, population_size=16, max_generations=2) as tau:
-        partition_nx, q_nx = tau.run()
-    print(f"Q: {q_nx}")
+        clustering_nx = tau.run()
+    print(f"Q: {clustering_nx.modularity}")
 
     print("--- Running igraph ---")
     with TauClustering(G_ig, config=config, population_size=16, max_generations=2) as tau:
-        partition_ig, q_ig = tau.run()
-    print(f"Q: {q_ig}")
+        clustering_ig = tau.run()
+    print(f"Q: {clustering_ig.modularity}")
 
 if __name__ == "__main__":
     main()

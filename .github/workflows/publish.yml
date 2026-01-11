@@ -33,21 +33,26 @@ jobs:
         run: make build
 
       - name: Publish package
+        shell: bash
         env:
           TARGET: ${{ inputs.target }}
           PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
           TEST_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
         run: |
+          TARGET="${TARGET:-pypi}"
+
           if [ "$TARGET" = "pypi" ]; then
             if [ -z "$PYPI_TOKEN" ]; then
               echo "PYPI_API_TOKEN secret is not configured" >&2
               exit 1
             fi
-            TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" python -m twine upload dist/*
+            TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" \
+              python -m twine upload dist/*
           else
             if [ -z "$TEST_TOKEN" ]; then
               echo "TEST_PYPI_API_TOKEN secret is not configured" >&2
               exit 1
             fi
-            TWINE_USERNAME=__token__ TWINE_PASSWORD="$TEST_TOKEN" python -m twine upload --repository testpypi dist/*
+            TWINE_USERNAME=__token__ TWINE_PASSWORD="$TEST_TOKEN" \
+              python -m twine upload --repository testpypi dist/*
           fi

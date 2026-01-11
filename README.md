@@ -48,54 +48,51 @@ pip install -e .
 from tau_community_detection import TauClustering
 import networkx as nx
 
-graph = nx.read_adjlist("path/to/graph.adjlist")
+if __name__ == "__main__":
+    # --- Scenario 1: Performance / Large Graphs (Recommended) ---
+    # Load directly from file (supports .graph, .edgelist, .ncol)
+    # This is memory-efficient as it avoids loading the graph twice.
+    tau = TauClustering("path/to/graph", population_size=40, max_generations=20)
+    clustering = tau.run()
 
-clustering = TauClustering(
-    graph,
-    population_size=80,
-    max_generations=250,
-)
-membership, modularity_history = clustering.run()
+    print(f"Modularity: {clustering.modularity:.4f}")
+    print(f"Communities: {len(clustering)}")
 
-print("community for node 0:", membership[0])
-print("best modularity:", modularity_history[-1])
+
+    # --- Scenario 2: Integration with Existing Code ---
+    # Pass your existing NetworkX or iGraph object directly.
+    G = nx.erdos_renyi_graph(n=1000, p=0.01, seed=42)
+
+    tau_nx = TauClustering(G, population_size=40, max_generations=20)
+    clustering, stats = tau_nx.run(track_stats=True)
+
+    print(f"Modularity: {clustering.modularity:.4f}")
 ```
 
 Need detailed per-generation metrics? Call `run(track_stats=True)` to receive
-`(membership, modularity_history, generation_stats)` where `generation_stats`
-is a list of dictionaries containing time and fitness diagnostics.
+`(vertex_clustering, generation_stats)`.
+
+To see progress in real-time or customize workers, pass a `TauConfig` object:
+```python
+from tau_community_detection import TauConfig
+# ...
+config = TauConfig(verbose=True, worker_count=4)
+tau = TauClustering("path/to/graph", ..., config=config)
+```
 
 ---
 
 ## Graph input
-
-To optimize for very large graphs or when using many worker processes, it is recommended to pass a file path (e.g., to an `.adjlist` or edge list file) directly to `TauClustering` rather than a pre-loaded graph object. This allows efficient memory sharing.
-
+ 
+To optimize for very large graphs or when using many worker processes, it is recommended to pass a file path (e.g., to an `.graph`, `.ncol`, or `.edgelist` file) directly to `TauClustering` rather than a pre-loaded graph object. This allows efficient memory sharing.
+ 
 Supported input:
 - File path to a graph in common NetworkX or igraph format (auto-detects weighting and structure).
 - Already-loaded `networkx.Graph` or `igraph.Graph` objects.
 
-By default, the loader auto-detects whether the graph is weighted based on the file or graph structure. You can override this by setting `TauConfig(is_weighted=True/False)` when constructing `TauClustering`; if your override disagrees with the detected type, a warning is issued and auto-detection is used.
+By default, the loader auto-detects whether the graph is weighted based on the file or graph structure. You can override this by setting `TauConfig(is_weighted=True/False)` when constructing `TauClustering`.
 
-**Examples:**
-```python
-from tau_community_detection import TauClustering
-
-# Recommended for large graphs:
-clustering = TauClustering("mygraph.graph", population_size=40, max_generations=30)
-
-# In-memory NetworkX graph:
-import networkx as nx
-g = nx.read_adjlist("mygraph.adjlist")
-clustering2 = TauClustering(g, population_size=40, max_generations=30)
-
-# Force unweighted input (ignore/strip weights if present) via config:
-from tau_community_detection import TauConfig
-custom_config = TauConfig(is_weighted=False)
-clustering3 = TauClustering("mygraph.graph", population_size=40, max_generations=30, config=custom_config)
-```
-For details on accepted formats, see below.
-
+See the **Quick Start** section above for usage examples.
 
 ---
 
@@ -105,9 +102,10 @@ All algorithm hyper-parameters live on the `TauConfig` dataclass. You can pass a
 configuration instance to `TauClustering` or adjust attributes on the default one. Key
 fields include:
 
-- `population_size`: number of partitions maintained per generation.
-- `max_generations`: upper bound on evolutionary iterations.
-- `elite_fraction` / `immigrant_fraction`: govern selection pressure.
+- `worker_count`: number of parallel processes (defaults to CPU count, capped by population size).
+- `population_size`: number of partitions maintained per generation (default: 60).
+- `max_generations`: upper bound on evolutionary iterations (default: 500).
+- `verbose`: set to `True` for progress logging (default: False).
 - `stopping_generations` / `stopping_jaccard`: convergence checks based on membership
   stability.
 - `random_seed`: makes runs reproducible across processes.

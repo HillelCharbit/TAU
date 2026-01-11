@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from multiprocessing import Pool, set_start_method
-from typing import Iterable, Optional, Sequence, Tuple
+from typing import Iterable, Optional, Sequence
 import time
 import weakref
 
@@ -99,8 +99,8 @@ class TauClustering:
 
         configure_main(
             self.graph,
-            self.config.leiden_iterations,
-            self.config.leiden_resolution,
+            self.config.n_iterations,
+            self.config.resolution_parameter,
             self.config.random_seed,
         )
         
@@ -125,13 +125,19 @@ class TauClustering:
         )
         offspring_count = max(0, self.config.population_size - elite_count - immigrant_count)
 
-        mod_history: list[float] = []
         generation_stats: list[dict[str, float]] | None = [] if track_stats else None
         last_best_membership: Optional[np.ndarray] = None
         convergence_streak = 0
         best_partition: Optional[Partition] = None
 
+        self._log(f"Creating population with {self.config.population_size} individuals...")
         population = self._create_population(pool, self.config.population_size, chunk_size)
+        self._log("Population created")
+
+        
+        original_names = (
+            list(self.graph.vs["name"]) if "name" in self.graph.vs.attributes() else None
+        )
         for generation in range(1, self.config.max_generations + 1):
             start_time = time.perf_counter()
             optimized = pool.map(optimize_partition, population, chunksize=chunk_size)
@@ -142,8 +148,6 @@ class TauClustering:
             best_idx = int(np.argmax(fitnesses))
             best_partition = population[best_idx]
             best_modularity = float(best_partition.fitness or -np.inf)
-            mod_history.append(best_modularity)
-
             if last_best_membership is not None:
                 jacc = self._similarity_arrays(best_partition.membership, last_best_membership)
                 if jacc >= self.config.stopping_jaccard:
@@ -206,9 +210,21 @@ class TauClustering:
             self._shutdown_pool()
 
         membership_result = best_partition.membership.astype(np.int64, copy=True)
+        original_membership = None
+        if original_names is not None and len(original_names) == len(membership_result):
+            original_membership = {
+                original_names[i]: int(membership_result[i]) for i in range(len(membership_result))
+            }
+
+        clustering_result = ig.VertexClustering(
+            self.graph,
+            membership=membership_result.tolist(),
+        )
+        if original_membership is not None:
+            clustering_result.original_membership = original_membership
         if track_stats and generation_stats is not None:
-            return membership_result, mod_history, generation_stats
-        return membership_result, mod_history
+            return clustering_result, generation_stats
+        return clustering_result
 
 
     def __enter__(self) -> "TauClustering":
@@ -293,8 +309,8 @@ class TauClustering:
         
         initargs = (
             self._graph_path,  # always a path now
-            self.config.leiden_iterations,
-            self.config.leiden_resolution,
+            self.config.n_iterations,
+            self.config.resolution_parameter,
             self._resolved_is_weighted,
             self.config.default_edge_weight,
             self.config.random_seed,

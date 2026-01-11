@@ -25,8 +25,8 @@ class TauConfig:
     stopping_generations: int = 10
     stopping_jaccard: float = 0.98
     sim_sample_size: Optional[int] = 20_000
-    leiden_iterations: int = 3
-    leiden_resolution: float = 1.0
+    n_iterations: int = 3
+    resolution_parameter: float = 1.0
     weight_attribute: Optional[str] = "weight"
     default_edge_weight: float = 1.0
     is_weighted: Optional[bool] = None

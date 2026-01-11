@@ -29,8 +29,8 @@ def _run_clustering(graph, *, config_override: dict | None = None) -> np.ndarray
         config_kwargs.update(config_override)
     config = TauConfig(**config_kwargs)
     tau = TauClustering(graph, population_size=6, max_generations=1, config=config)
-    membership, _ = tau.run()
-    return membership
+    vertex_clustering = tau.run()
+    return np.asarray(vertex_clustering.membership)
 
 
 def test_unweighted_override_forces_equal_weights():
@@ -55,3 +55,30 @@ def test_auto_detection_sets_config_flag():
     config = TauConfig(random_seed=1, stopping_generations=1)
     tau = TauClustering(graph, population_size=4, max_generations=1, config=config)
     assert tau.config.is_weighted is True
+
+
+def test_original_membership_preserves_vertex_names(tmp_path):
+    graph_path = tmp_path / "preserve_names.graph"
+    graph_path.write_text(
+        "\n".join(
+            [
+                "12 851979 0.5",
+                "851979 113878 0.5",
+                "113878 12 0.5",
+            ]
+        )
+    )
+    config = TauConfig(
+        random_seed=7,
+        stopping_generations=1,
+        worker_count=1,
+        reuse_worker_pool=False,
+    )
+    tau = TauClustering(str(graph_path), population_size=4, max_generations=1, config=config)
+    clustering = tau.run()
+
+    assert hasattr(clustering, "original_membership")
+    names = list(tau.graph.vs["name"])
+    assert set(clustering.original_membership.keys()) == set(names)
+    for idx, name in enumerate(names):
+        assert clustering.original_membership[name] == clustering.membership[idx]

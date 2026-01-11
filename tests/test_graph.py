@@ -344,12 +344,13 @@ class TestRoundtrip:
         assert worker_graph.vcount() == graph.vcount()
         assert worker_graph.ecount() == graph.ecount()
 
-    def test_temp_file_valid_ncol(self):
+    def test_temp_file_valid_pickle(self):
         G = nx.cycle_graph(10)  # truly unweighted
         graph, weighted, path = load_graph(G)
-        
-        # Verify temp file is valid NCOL
-        reloaded = ig.Graph.Read_Ncol(path, weights=False, directed=False)
+        path_obj = Path(path)
+        assert path_obj.exists()
+        assert path_obj.suffix == ".igraph"
+        reloaded = ig.Graph.Read_Pickle(path)
         assert reloaded.vcount() == graph.vcount()
         assert reloaded.ecount() == graph.ecount()
 

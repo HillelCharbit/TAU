@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: tau_community_detection
-Version: 1.2.5
+Version: 1.2.8
 Summary: Community detection via Louvain/Leiden + Genetic Algorithm
 Author: Hillel Charbit
 Author-email: hillelch@tauex.tau.ac.il
@@ -72,15 +72,15 @@ clustering = TauClustering(
     population_size=80,
     max_generations=250,
 )
-membership, modularity_history = clustering.run()
+vertex_clustering = clustering.run()
 
-print("community for node 0:", membership[0])
-print("best modularity:", modularity_history[-1])
+print("community for node 0:", vertex_clustering.membership[0])
+print("best modularity:", vertex_clustering.modularity)
 ```
 
 Need detailed per-generation metrics? Call `run(track_stats=True)` to receive
-`(membership, modularity_history, generation_stats)` where `generation_stats`
-is a list of dictionaries containing time and fitness diagnostics.
+`(vertex_clustering, generation_stats)` where `generation_stats` is a list of
+dictionaries containing runtime and fitness diagnostics (including per-generation modularity).
 
 ---
 
