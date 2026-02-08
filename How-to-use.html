@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TAU Community Detection - Cheat Sheet</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #3498db;
+            --bg-color: #f8f9fa;
+            --code-bg: #282c34;
+            --code-text: #abb2bf;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #fff;
+            color: #333;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            border: 1px solid #e1e4e8;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background: white;
+            padding: 40px;
+        }
+
+        header {
+            border-bottom: 2px solid var(--primary-color);
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        h1 {
+            margin: 0;
+            color: var(--primary-color);
+            font-size: 2.2em;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.2em;
+            font-weight: 500;
+        }
+
+        .section-title {
+            color: var(--accent-color);
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            font-size: 0.9em;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }
+
+        .description-box {
+            background-color: #e8f4fd;
+            border-left: 4px solid var(--accent-color);
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .install-block {
+            background: #f1f1f1;
+            padding: 10px 15px;
+            font-family: 'Courier New', Courier, monospace;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            margin-bottom: 20px;
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            color: var(--code-text);
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        code {
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        /* Syntax Highlighting Simulators */
+        .kw {
+            color: #c678dd;
+        }
+
+        /* keyword */
+        .str {
+            color: #98c379;
+        }
+
+        /* string */
+        .com {
+            color: #5c6370;
+            font-style: italic;
+        }
+
+        /* comment */
+        .func {
+            color: #61afef;
+        }
+
+        /* function */
+        .num {
+            color: #d19a66;
+        }
+
+        /* number */
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+
+        th,
+        td {
+            border: 1px solid #e1e4e8;
+            padding: 8px 12px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f6f8fa;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        tr:nth-child(even) {
+            background-color: #fcfcfc;
+        }
+
+        ul {
+            padding-left: 20px;
+            margin: 0;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 0.8em;
+            color: #888;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                border: none;
+                padding: 0;
+                max-width: 100%;
+            }
+
+            .grid-layout {
+                display: block;
+            }
+
+            /* Stack for print if needed, or keep grid if landscape */
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <header>
+            <h1>TAU Community Detection</h1>
+            <span class="subtitle">Quick Reference Guide</span>
+        </header>
+
+        <div class="description-box">
+            <strong>What is TAU?</strong><br>
+            A hybrid genetic algorithm for graph clustering that couples global evolutionary search with local Leiden
+            refinements to maximize modularity.
+        </div>
+
+        <div class="install-block">
+            $ pip install tau-community-detection
+        </div>
+
+        <div class="grid-layout">
+            <div>
+                <div class="section-title">Basic Usage (Python)</div>
+                <pre><code><span class="kw">import</span> networkx <span class="kw">as</span> nx
+<span class="kw">from</span> tau_community_detection <span class="kw">import</span> TauClustering
+
+<span class="com"># 1. Load Graph (Path is memory efficient)</span>
+tau = <span class="func">TauClustering</span>(<span class="str">"path/to/graph.edgelist"</span>)
+
+<span class="com"># 2. Run Algorithm</span>
+clustering, stats = tau.<span class="func">run</span>(track_stats=<span class="kw">True</span>)
+
+<span class="com"># 3. Get Results</span>
+<span class="func">print</span>(<span class="str">f"Modularity: {clustering.modularity}"</span>)
+<span class="func">print</span>(<span class="str">f"Communities: {len(clustering)}"</span>)</code></pre>
+
+                <div class="section-title">Troubleshooting & Tips</div>
+                <ul>
+                    <li><strong>Large Graphs:</strong> Always pass a file path string to <code>TauClustering</code>
+                        instead of a loaded graph object to enable efficient memory sharing across worker processes.
+                    </li>
+                    <li><strong>Reproducibility:</strong> Set <code>seed</code> in <code>TauConfig</code> to ensure
+                        consistent runs.</li>
+                    <li><strong>Input Formats:</strong> Supports <code>.graph</code>, <code>.edgelist</code>,
+                        <code>.ncol</code>, and <code>.txt</code> (auto-detects weights).</li>
+                </ul>
+            </div>
+
+            <div>
+                <div class="section-title">Key Configuration Parameters</div>
+                <p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">Adjust these using <code>TauConfig</code>
+                    to tune performance.</p>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Parameter</th>
+                            <th>Default</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>population_size</code></td>
+                            <td>60</td>
+                            <td>Number of partitions in the pool. Higher = better exploration but slower.</td>
+                        </tr>
+                        <tr>
+                            <td><code>max_generations</code></td>
+                            <td>500</td>
+                            <td>Hard limit on iterations. Algorithm may stop early if converged.</td>
+                        </tr>
+                        <tr>
+                            <td><code>worker_count</code></td>
+                            <td>CPU Count</td>
+                            <td>Number of parallel processes. Set to 1 for debugging.</td>
+                        </tr>
+                        <tr>
+                            <td><code>p_elite</code></td>
+                            <td>0.1</td>
+                            <td>Fraction of top partitions kept as-is for the next generation.</td>
+                        </tr>
+                        <tr>
+                            <td><code>stopping_jaccard</code></td>
+                            <td>0.98</td>
+                            <td>Convergence threshold. Stops if top partitions are 98% similar.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="footer">
+            TAU (Tel-Aviv University) Algorithm • Based on Gilad & Sharan (2023) • Open Source License: MIT
+        </div>
+    </div>
+
+</body>
+
+</html>

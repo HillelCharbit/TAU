@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/tau-community-detection.svg)](https://pypi.org/project/tau-community-detection/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-
+[![Downloads](https://static.pepy.tech/badge/tau-community-detection)](https://pepy.tech/project/tau-community-detection)
 `tau-community-detection` implements TAU, an evolutionary community detection algorithm
 that couples genetic search with Leiden refinements. It is designed for scalable graph
 clustering with configurable hyper-parameters and multiprocessing support.
@@ -141,8 +141,32 @@ make build
    input and ensure `PYPI_API_TOKEN` is set. Use `TEST_PYPI_API_TOKEN` for dry runs.
 
 ---
+## Reference & Citation
 
-## License
+If you use TAU in your research, please cite the original algorithm paper:
 
-Released under the [MIT License](https://opensource.org/licenses/MIT). See `LICENSE` for
-details.
+> **From Leiden to Tel-Aviv University (TAU): exploring clustering solutions via a genetic algorithm**
+> Gal Gilad and Roded Sharan. *PNAS Nexus*, Volume 2, Issue 6, June 2023.
+> [DOI: 10.1093/pnasnexus/pgad180](https://doi.org/10.1093/pnasnexus/pgad180)
+
+**BibTeX:**
+```bibtex
+@article{gilad2023tau,
+  title={From Leiden to Tel-Aviv University (TAU): exploring clustering solutions via a genetic algorithm},
+  author={Gilad, Gal and Sharan, Roded},
+  journal={PNAS Nexus},
+  volume={2},
+  number={6},
+  pages={pgad180},
+  year={2023},
+  publisher={Oxford University Press}
+}
+```
+
+---
+## License & Versioning
+
+**Current Version:** 1.2.8
+**License:** This project is licensed under the [MIT License](LICENSE).
+
+See the [Changelog](CHANGELOG.md) for a detailed history of changes and updates.
