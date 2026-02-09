@@ -4,5 +4,5 @@ from .config import TauConfig
 
 __all__ = ["TauClustering", "TauConfig"]
 
-__version__ = "1.2.8"
+__version__ = "1.2.10"
 
