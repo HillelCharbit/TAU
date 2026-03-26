@@ -32,3 +32,8 @@ coverage.xml
 *.log
 .DS_Store
 Thumbs.db
+
+tests/proofread_filtered
+*.prof
+*_report.txt
+test_mp.py
