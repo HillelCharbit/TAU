@@ -1,0 +1,40 @@
+[OLD VERSION]
+Loaded tau_community_detection from: /home/bnet/hillelch/TAU/.venv_old/lib/python3.10/site-packages/tau_community_detection/__init__.py
+Loading graph: /home/bnet/hillelch/connectome/proofread_filtered.graph
+Main parameter values: pop_size=60, workers=60, max_generations=10
+Running clustering...
+Creating population with 60 individuals...
+Population created
+Generation 1 Top fitness: 0.69945; Average fitness: 0.69417; Time per generation: 223.519; convergence: 0 ; elt-runtime=0.124 ; crim-runtime=70.810
+Generation 2 Top fitness: 0.69965; Average fitness: 0.69646; Time per generation: 291.983; convergence: 0 ; elt-runtime=0.167 ; crim-runtime=99.136
+Generation 3 Top fitness: 0.69967; Average fitness: 0.69772; Time per generation: 242.849; convergence: 1 ; elt-runtime=0.234 ; crim-runtime=86.628
+Generation 4 Top fitness: 0.69970; Average fitness: 0.69732; Time per generation: 232.954; convergence: 0 ; elt-runtime=0.214 ; crim-runtime=58.833
+Generation 5 Top fitness: 0.69972; Average fitness: 0.69810; Time per generation: 216.912; convergence: 1 ; elt-runtime=0.234 ; crim-runtime=92.309
+Generation 6 Top fitness: 0.69973; Average fitness: 0.69774; Time per generation: 221.615; convergence: 2 ; elt-runtime=0.212 ; crim-runtime=68.709
+Generation 7 Top fitness: 0.69974; Average fitness: 0.69824; Time per generation: 242.944; convergence: 3 ; elt-runtime=0.229 ; crim-runtime=77.014
+Generation 8 Top fitness: 0.69974; Average fitness: 0.69765; Time per generation: 258.261; convergence: 4 ; elt-runtime=0.204 ; crim-runtime=104.164
+Generation 9 Top fitness: 0.69975; Average fitness: 0.69794; Time per generation: 248.842; convergence: 5 ; elt-runtime=0.211 ; crim-runtime=125.516
+Run completed in: 2514.797 seconds
+Total time (including init): 2532.762 seconds
+Resulting number of communities: 124
+--------------------------------------------------
+[NEW VERSION]
+Loaded tau_community_detection from: /home/bnet/hillelch/TAU/src/tau_community_detection/__init__.py
+Loading graph: /home/bnet/hillelch/connectome/proofread_filtered.graph
+Main parameter values: pop_size=60, workers=69, max_generations=10
+Running clustering...
+Creating population with 60 individuals...
+Population created
+Generation 1 Top fitness: 0.69929; Average fitness: 0.69381; Time per generation: 185.477; convergence: 0 ; elt-runtime=0.116 ; crim-runtime=0.272
+Generation 2 Top fitness: 0.69941; Average fitness: 0.69655; Time per generation: 127.579; convergence: 0 ; elt-runtime=0.175 ; crim-runtime=10.567
+Generation 3 Top fitness: 0.69952; Average fitness: 0.69773; Time per generation: 155.938; convergence: 0 ; elt-runtime=0.123 ; crim-runtime=0.203
+Generation 4 Top fitness: 0.69963; Average fitness: 0.69757; Time per generation: 275.729; convergence: 0 ; elt-runtime=0.309 ; crim-runtime=0.221
+Generation 5 Top fitness: 0.69965; Average fitness: 0.69747; Time per generation: 113.637; convergence: 0 ; elt-runtime=0.232 ; crim-runtime=0.210
+Generation 6 Top fitness: 0.69970; Average fitness: 0.69761; Time per generation: 221.161; convergence: 0 ; elt-runtime=0.158 ; crim-runtime=0.239
+Generation 7 Top fitness: 0.69971; Average fitness: 0.69790; Time per generation: 158.420; convergence: 1 ; elt-runtime=0.239 ; crim-runtime=0.291
+Generation 8 Top fitness: 0.69972; Average fitness: 0.69813; Time per generation: 175.944; convergence: 2 ; elt-runtime=0.253 ; crim-runtime=0.198
+Generation 9 Top fitness: 0.69973; Average fitness: 0.69761; Time per generation: 186.760; convergence: 3 ; elt-runtime=0.224 ; crim-runtime=0.238
+Run completed in: 1895.778 seconds
+Total time (including init): 1914.241 seconds
+Resulting number of communities: 124
+--------------------------------------------------

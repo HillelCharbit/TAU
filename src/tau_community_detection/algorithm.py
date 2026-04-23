@@ -5,6 +5,7 @@ from multiprocessing import Pool, set_start_method
 from typing import Iterable, Optional, Sequence
 import time
 import weakref
+import threading
 
 import igraph as ig
 import networkx as nx
@@ -32,8 +33,38 @@ except RuntimeError:
 class _SequentialPool:
     """Lightweight stand-in when multiprocessing pools cannot be created."""
 
+    def __init__(self, *args, **kwargs):
+        pass
+
     def map(self, func, iterable, chunksize: int = 1):  # noqa: D401 - simple sequential map
         return [func(item) for item in iterable]
+
+    def map_async(self, func, iterable, chunksize: int = 1):
+        items = list(iterable)
+
+        class _AsyncResult:
+            def __init__(self):
+                self._result = None
+                self._exc = None
+                self._done = threading.Event()
+                self._thread = threading.Thread(target=self._run, daemon=True)
+                self._thread.start()
+
+            def _run(self):
+                try:
+                    self._result = [func(item) for item in items]
+                except Exception as exc:
+                    self._exc = exc
+                finally:
+                    self._done.set()
+
+            def get(self, timeout=None):
+                self._done.wait(timeout=timeout)
+                if self._exc is not None:
+                    raise self._exc
+                return self._result
+
+        return _AsyncResult()
 
     def close(self) -> None:
         pass
@@ -110,12 +141,12 @@ class TauClustering:
         
         self._log(
                 f"Main parameter values: pop_size={self.config.population_size}, "
-                f"workers={self.config.resolve_worker_count(self.config.population_size)}, "
+                f"workers={self.config.resolve_worker_count()}, "
                 f"max_generations={self.config.max_generations}"
         )
 
     def run(self, track_stats: bool = False):
-        worker_count = self.config.resolve_worker_count(self.config.population_size)
+        worker_count = self.config.resolve_worker_count()
         chunk_size = self._resolve_chunk_size(worker_count)
         pool = self._ensure_pool(worker_count)
         elite_count = min(self.config.resolve_elite_count(), self.config.population_size)
@@ -140,7 +171,19 @@ class TauClustering:
         )
         for generation in range(1, self.config.max_generations + 1):
             start_time = time.perf_counter()
-            optimized = pool.map(optimize_partition, population, chunksize=chunk_size)
+            
+            # Queue optimize tasks
+            opt_async = pool.map_async(optimize_partition, population, chunksize=chunk_size)
+            
+            # Queue immigrant tasks simultaneously allowing idle workers to pick them up
+            imm_async = None
+            if immigrant_count > 0:
+                low, high = self.config.sample_fraction_range
+                fractions = self.rng.uniform(low, high, immigrant_count)
+                imm_async = pool.map_async(create_partition, fractions.tolist(), chunksize=chunk_size)
+
+            # Block until optimization is done
+            optimized = opt_async.get()
             population[:] = optimized
 
             fitnesses = np.array([p.fitness if p.fitness is not None else float("-inf") for p in population])
@@ -169,11 +212,7 @@ class TauClustering:
 
             crim_st = time.perf_counter()
             offspring = self._produce_offspring(pool, chunk_size, population, offspring_count)
-            immigrants = (
-                self._create_population(pool, immigrant_count, chunk_size)
-                if immigrant_count
-                else []
-            )
+            immigrants = imm_async.get() if imm_async is not None else []
             crim_rt = time.perf_counter() - crim_st
 
             if offspring:

@@ -1,5 +1,5 @@
 networkx==3.4
 numpy==2.2.0
-python-igraph==1.0.0
+igraph
 scikit-learn==1.7.0
 

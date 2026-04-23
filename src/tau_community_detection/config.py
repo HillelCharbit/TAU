@@ -36,11 +36,12 @@ class TauConfig:
     random_seed: Optional[int] = None
     verbose: bool = False
 
-    def resolve_worker_count(self, population_size: int) -> int:
-        from os import cpu_count
 
+    def resolve_worker_count(self) -> int:
+        from os import cpu_count
+        max_parallel_tasks = self.population_size + self.resolve_immigrant_count()
         candidate = self.worker_count or cpu_count() or 1
-        return max(1, min(population_size, candidate))
+        return max(1, min(max_parallel_tasks, candidate))
 
     def resolve_elite_count(self) -> int:
         return max(1, int(self.elite_fraction * self.population_size))

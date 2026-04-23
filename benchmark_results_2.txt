@@ -1,0 +1,5 @@
+[NEW VERSION]
+Loaded tau_community_detection from: /home/bnet/hillelch/TAU/src/tau_community_detection/__init__.py
+Loading graph: /home/bnet/hillelch/connectome/proofread_filtered.graph
+Main parameter values: pop_size=60, workers=69, max_generations=10
+Running clustering...
