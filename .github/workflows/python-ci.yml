@@ -44,7 +44,7 @@ jobs:
 
       - name: Collect coverage
         if: matrix.python-version == '3.11'
-        run: make coverage
+        run: PYTHONPATH=src:tests make coverage
 
       - name: Build package
         run: make build
