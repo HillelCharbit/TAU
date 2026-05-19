@@ -21,6 +21,7 @@ permissions:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    environment: publish
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
