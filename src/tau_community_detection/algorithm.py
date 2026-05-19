@@ -6,6 +6,8 @@ from typing import Iterable, Optional, Sequence
 import time
 import weakref
 import threading
+import sys
+import warnings
 
 import igraph as ig
 import networkx as nx
@@ -28,6 +30,15 @@ try:  # ensure spawn context for cross-platform safety
     set_start_method("spawn")
 except RuntimeError:
     pass
+
+
+def _is_interactive_environment() -> bool:
+    """Detect if running in Jupyter, IPython, or similar interactive environment."""
+    try:
+        get_ipython()  # noqa: F821
+        return True
+    except NameError:
+        return False
 
 
 class _SequentialPool:
@@ -355,13 +366,37 @@ class TauClustering:
             self.config.random_seed,
         )
         
-        try:
-            self._pool = Pool(worker_count, initializer=init_worker, initargs=initargs)
-            self._pool_processes = worker_count
-        except PermissionError:
-            self._log("Falling back to sequential execution")
-            self._pool = _SequentialPool()
-            self._pool_processes = 1
+        # Attempt parallel execution
+        if worker_count > 1:
+            try:
+                self._pool = Pool(worker_count, initializer=init_worker, initargs=initargs)
+                self._pool_processes = worker_count
+                return self._pool
+            except (PermissionError, RuntimeError, ValueError, OSError) as exc:
+                # Common failures in Windows/Jupyter/macOS interactive environments
+                if _is_interactive_environment():
+                    warnings.warn(
+                        "Parallel execution unavailable in interactive environment. "
+                        "For Jupyter on Windows, consider:\n"
+                        "  1. Using 'if __name__ == \"__main__\":' in scripts\n"
+                        "  2. Installing loky: pip install loky\n"
+                        "  3. Running with num_workers=1\n"
+                        "Falling back to sequential processing.",
+                        RuntimeWarning,
+                        stacklevel=3,
+                    )
+                else:
+                    self._log(f"Multiprocessing pool creation failed: {exc}. Falling back to sequential execution.")
+
+                # Fall back to sequential execution
+                self._pool = _SequentialPool()
+                self._pool_processes = 1
+                return self._pool
+
+        # Single worker requested
+        self._log("Using sequential execution (1 worker)")
+        self._pool = _SequentialPool()
+        self._pool_processes = 1
         return self._pool
 
     def _shutdown_pool(self) -> None:

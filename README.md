@@ -10,7 +10,8 @@
 
 `tau-community-detection` implements TAU, an evolutionary community detection algorithm
 that couples genetic search with Leiden refinements. It is designed for scalable graph
-clustering with configurable hyper-parameters and multiprocessing support.
+clustering with a simple drop-in `run_clustering()` API, sensible defaults, and
+multiprocessing support.
 
 ---
 
@@ -21,7 +22,8 @@ clustering with configurable hyper-parameters and multiprocessing support.
 - **Leiden optimization**: Refines every candidate with Leiden to ensure modularity gains.
 - **Multiprocessing aware**: Utilises worker pools for population optimization.
 - **Deterministic options**: Accepts a user-specified random seed for reproducibility.
-- **Simple API**: Access everything through the `TauClustering` class.
+- **Simple API**: Use `tau.run_clustering(graph)` for the default workflow, or drop
+  down to `TauClustering` and `TauConfig` when you need advanced control.
 
 ---
 
@@ -49,52 +51,53 @@ pip install -e .
 ## Quick Start (Python API)
 
 ```python
-from tau_community_detection import TauClustering
 import networkx as nx
+import tau_community_detection as tau
 
-if __name__ == "__main__":
-    # --- Scenario 1: Performance / Large Graphs (Recommended) ---
-    # Load directly from file (supports .graph, .edgelist, .ncol)
-    # This is memory-efficient as it avoids loading the graph twice.
-    tau = TauClustering("path/to/graph", population_size=40, max_generations=20)
-    clustering = tau.run()
+g = nx.erdos_renyi_graph(n=1000, p=0.01, seed=42)
 
-    print(f"Modularity: {clustering.modularity:.4f}")
-    print(f"Communities: {len(clustering)}")
+# Zero-friction default usage
+clustering = tau.run_clustering(g)
+print(f"Modularity: {clustering.modularity:.4f}")
+print(f"Communities: {len(clustering)}")
 
-
-    # --- Scenario 2: Integration with Existing Code ---
-    # Pass your existing NetworkX or iGraph object directly.
-    G = nx.erdos_renyi_graph(n=1000, p=0.01, seed=42)
-
-    tau_nx = TauClustering(G, population_size=40, max_generations=20)
-    clustering, stats = tau_nx.run(track_stats=True)
-
-    print(f"Modularity: {clustering.modularity:.4f}")
+# Only override the knobs you care about
+clustering = tau.run_clustering(
+  g,
+  resolution_parameter=0.8,
+  random_seed=42,
+  verbose=True,
+  population_size=100,
+  max_generations=50,
+)
 ```
 
-Need detailed per-generation metrics? Call `run(track_stats=True)` to receive
-`(vertex_clustering, generation_stats)`.
+`run_clustering()` returns an `igraph.VertexClustering` object, so the usual
+`modularity` and `membership` attributes are available immediately.
 
-To see progress in real-time or customize workers, pass a `TauConfig` object:
+For advanced tuning, pass additional `TauConfig` fields directly as keyword
+arguments without having to instantiate `TauConfig` yourself:
+
 ```python
-from tau_community_detection import TauConfig
-# ...
-config = TauConfig(verbose=True, worker_count=4)
-tau = TauClustering("path/to/graph", ..., config=config)
+clustering = tau.run_clustering(
+  g,
+  stopping_generations=5,
+  stopping_jaccard=0.95,
+  elite_fraction=0.2,
+)
 ```
 
 ---
 
 ## Graph input
  
-To optimize for very large graphs or when using many worker processes, it is recommended to pass a file path (e.g., to an `.graph`, `.ncol`, or `.edgelist` file) directly to `TauClustering` rather than a pre-loaded graph object. This allows efficient memory sharing.
+To optimize for very large graphs or when using many worker processes, it is recommended to pass a file path (e.g., to an `.graph`, `.ncol`, or `.edgelist` file) directly to `run_clustering()` or `TauClustering` rather than a pre-loaded graph object. This allows efficient memory sharing.
  
 Supported input:
 - File path to a graph in common NetworkX or igraph format (auto-detects weighting and structure).
 - Already-loaded `networkx.Graph` or `igraph.Graph` objects.
 
-By default, the loader auto-detects whether the graph is weighted based on the file or graph structure. You can override this by setting `TauConfig(is_weighted=True/False)` when constructing `TauClustering`.
+By default, the loader auto-detects whether the graph is weighted based on the file or graph structure. You can override this by setting `TauConfig(is_weighted=True/False)` when constructing `TauClustering`, or by passing the appropriate weight settings into `run_clustering()`.
 
 See the **Quick Start** section above for usage examples.
 
@@ -102,13 +105,13 @@ See the **Quick Start** section above for usage examples.
 
 ## Configuration
 
-All algorithm hyper-parameters live on the `TauConfig` dataclass. You can pass a custom
-configuration instance to `TauClustering` or adjust attributes on the default one. Key
-fields include:
+All algorithm hyper-parameters live on the `TauConfig` dataclass. The high-level
+`run_clustering()` wrapper accepts the most common ones directly, while `TauConfig`
+remains available for advanced workflows. Key fields include:
 
 - `worker_count`: number of parallel processes (defaults to CPU count, capped by population size).
-- `population_size`: number of partitions maintained per generation (default: 60).
-- `max_generations`: upper bound on evolutionary iterations (default: 500).
+- `population_size`: number of partitions maintained per generation (default: 60 in `run_clustering()`).
+- `max_generations`: upper bound on evolutionary iterations (default: 20 in `run_clustering()`).
 - `verbose`: set to `True` for progress logging (default: False).
 - `stopping_generations` / `stopping_jaccard`: convergence checks based on membership
   stability.
@@ -170,7 +173,7 @@ If you use TAU in your research, please cite the original algorithm paper:
 ---
 ## License & Versioning
 
-**Current Version:** 1.2.8
+**Current Version:** 1.3.0
 **License:** This project is licensed under the [MIT License](LICENSE).
 
 See the [Changelog](CHANGELOG.md) for a detailed history of changes and updates.

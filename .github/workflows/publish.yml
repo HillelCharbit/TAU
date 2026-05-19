@@ -11,6 +11,10 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
@@ -32,27 +36,15 @@ jobs:
       - name: Build distribution
         run: make build
 
-      - name: Publish package
-        shell: bash
-        env:
-          TARGET: ${{ inputs.target }}
-          PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-          TEST_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
-        run: |
-          TARGET="${TARGET:-pypi}"
+      - name: Publish to TestPyPI
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
 
-          if [ "$TARGET" = "pypi" ]; then
-            if [ -z "$PYPI_TOKEN" ]; then
-              echo "PYPI_API_TOKEN secret is not configured" >&2
-              exit 1
-            fi
-            TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" \
-              python -m twine upload dist/*
-          else
-            if [ -z "$TEST_TOKEN" ]; then
-              echo "TEST_PYPI_API_TOKEN secret is not configured" >&2
-              exit 1
-            fi
-            TWINE_USERNAME=__token__ TWINE_PASSWORD="$TEST_TOKEN" \
-              python -m twine upload --repository testpypi dist/*
-          fi
+      - name: Publish to PyPI
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

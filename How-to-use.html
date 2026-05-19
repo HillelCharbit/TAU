@@ -215,13 +215,13 @@
             <div>
                 <div class="section-title">Basic Usage (Python)</div>
                 <pre><code><span class="kw">import</span> networkx <span class="kw">as</span> nx
-<span class="kw">from</span> tau_community_detection <span class="kw">import</span> TauClustering
+<span class="kw">import</span> tau_community_detection <span class="kw">as</span> tau
 
 <span class="com"># 1. Load Graph (Path is memory efficient)</span>
-tau = <span class="func">TauClustering</span>(<span class="str">"path/to/graph.edgelist"</span>)
+g = nx.<span class="func">erdos_renyi_graph</span>(<span class="num">100</span>, <span class="num">0.05</span>, seed=<span class="num">42</span>)
 
 <span class="com"># 2. Run Algorithm</span>
-clustering, stats = tau.<span class="func">run</span>(track_stats=<span class="kw">True</span>)
+clustering = tau.<span class="func">run_clustering</span>(g)
 
 <span class="com"># 3. Get Results</span>
 <span class="func">print</span>(<span class="str">f"Modularity: {clustering.modularity}"</span>)
@@ -256,17 +256,17 @@ clustering, stats = tau.<span class="func">run</span>(track_stats=<span class="k
                         <tr>
                             <td><code>population_size</code></td>
                             <td>60</td>
-                            <td>Number of partitions in the pool. Higher = better exploration but slower.</td>
+                            <td>Number of partitions in the pool. Higher = better exploration but slower. Can be overridden in <code>run_clustering()</code>.</td>
                         </tr>
                         <tr>
                             <td><code>max_generations</code></td>
-                            <td>500</td>
-                            <td>Hard limit on iterations. Algorithm may stop early if converged.</td>
+                            <td>20</td>
+                            <td>Hard limit on iterations. Algorithm may stop early if converged. Can be overridden in <code>run_clustering()</code>.</td>
                         </tr>
                         <tr>
                             <td><code>worker_count</code></td>
                             <td>CPU Count</td>
-                            <td>Number of parallel processes. Set to 1 for debugging.</td>
+                            <td>Number of parallel processes. Set to 1 for debugging or notebooks.</td>
                         </tr>
                         <tr>
                             <td><code>p_elite</code></td>
