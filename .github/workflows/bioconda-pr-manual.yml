@@ -16,6 +16,9 @@ env:
 jobs:
   open-pr:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Resolve version
         id: v
@@ -40,8 +43,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.BIOCONDA_FORK_REPO }}
-          token: ${{ secrets.BIOCONDA_TOKEN }}
+          token: ${{ secrets.BIOCONDA_PAT }}
           ref: master
+          fetch-depth: 0
           path: bioconda-recipes
 
       - name: Update recipe
@@ -57,33 +61,44 @@ jobs:
       - name: Commit and push branch
         id: commit
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.BIOCONDA_PAT }}
         run: |
           set -euo pipefail
           VERSION="${{ steps.v.outputs.version }}"
           BRANCH="bump-${PYPI_NAME}-${VERSION}"
 
           cd bioconda-recipes
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "${BRANCH}"
-
           if git diff --quiet -- "${RECIPE_PATH}"; then
+            echo "No recipe changes detected."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
             echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          git add "${RECIPE_PATH}"
-          git commit -m "bioconda: bump ${PYPI_NAME} to ${VERSION}"
-          git push --force-with-lease origin "${BRANCH}"
+          FILE_SHA="$(gh api "/repos/${{ secrets.BIOCONDA_FORK_REPO }}/contents/${RECIPE_PATH}" --jq '.sha')"
+          FILE_CONTENT="$(base64 -w 0 "${RECIPE_PATH}")"
+
+          MASTER_SHA="$(gh api "/repos/${{ secrets.BIOCONDA_FORK_REPO }}/git/ref/heads/master" --jq '.object.sha')"
+          gh api --method DELETE "/repos/${{ secrets.BIOCONDA_FORK_REPO }}/git/refs/heads/${BRANCH}" || true
+          gh api --method POST "/repos/${{ secrets.BIOCONDA_FORK_REPO }}/git/refs" \
+            --field ref="refs/heads/${BRANCH}" \
+            --field sha="${MASTER_SHA}"
+
+          gh api --method PUT "/repos/${{ secrets.BIOCONDA_FORK_REPO }}/contents/${RECIPE_PATH}" \
+            --field message="bioconda: bump ${PYPI_NAME} to ${VERSION}" \
+            --field content="${FILE_CONTENT}" \
+            --field sha="${FILE_SHA}" \
+            --field branch="${BRANCH}"
+
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
 
       - name: Open PR
         if: steps.commit.outputs.has_changes == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.BIOCONDA_TOKEN }}
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.BIOCONDA_PAT }}
         run: |
           set -euo pipefail
           VERSION="${{ steps.v.outputs.version }}"
