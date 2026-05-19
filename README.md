@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![Downloads](https://static.pepy.tech/badge/tau-community-detection)](https://pepy.tech/project/tau-community-detection)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/HillelCharbit/TAU/main.yml?branch=main)](https://github.com/HillelCharbit/TAU/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/HillelCharbit/TAU/python-ci.yml?branch=master)](https://github.com/HillelCharbit/TAU/actions)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 
