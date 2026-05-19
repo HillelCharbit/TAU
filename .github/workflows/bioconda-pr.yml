@@ -65,19 +65,7 @@ jobs:
           SHA256="${{ steps.pypi.outputs.sha256 }}"
           FILE="bioconda-recipes/${RECIPE_PATH}"
 
-          # Try common Bioconda version patterns.
-          sed -E -i "s#^([[:space:]]*\{\%[[:space:]]*set[[:space:]]+version[[:space:]]*=[[:space:]]*\").*(\"[[:space:]]*\%\}[[:space:]]*)$#\1${VERSION}\2#" "${FILE}" || true
-          sed -E -i "s#^([[:space:]]*version:[[:space:]]*).*$#\1${VERSION}#" "${FILE}" || true
-          sed -E -i "s#^([[:space:]]*sha256:[[:space:]]*).*$#\1${SHA256}#" "${FILE}"
-
-          grep -Eq "^([[:space:]]*\{\%[[:space:]]*set[[:space:]]+version[[:space:]]*=[[:space:]]*\"${VERSION}\"[[:space:]]*\%\}[[:space:]]*|[[:space:]]*version:[[:space:]]*${VERSION}[[:space:]]*)$" "${FILE}" || {
-            echo "Could not update version in recipe" >&2
-            exit 1
-          }
-          grep -Eq "^[[:space:]]*sha256:[[:space:]]*${SHA256}[[:space:]]*$" "${FILE}" || {
-            echo "Could not update sha256 in recipe" >&2
-            exit 1
-          }
+          python -c "import pathlib,re,sys; p=pathlib.Path(sys.argv[1]); version=sys.argv[2]; sha=sys.argv[3]; t=p.read_text(encoding='utf-8'); t,n1=re.subn(r'^(\\s*\\{\\%\\s*set\\s+version\\s*=\\s*\")[^\"]+(\"\\s*\\%\\}\\s*)$', rf'\\g<1>{version}\\2', t, flags=re.MULTILINE); t,n1=(re.subn(r'^(\\s*version:\\s*).*(\\s*)$', rf'\\g<1>{version}\\2', t, flags=re.MULTILINE) if n1==0 else (t,n1)); t,n2=re.subn(r'^(\\s*sha256:\\s*).*(\\s*)$', rf'\\g<1>{sha}\\2', t, flags=re.MULTILINE); (n1 and n2) or (_ for _ in ()).throw(SystemExit('Could not update version/sha256 in recipe')); p.write_text(t, encoding='utf-8')" "${FILE}" "${VERSION}" "${SHA256}"
 
       - name: Commit and push branch
         id: commit
