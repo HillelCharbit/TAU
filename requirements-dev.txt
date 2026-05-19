@@ -5,3 +5,4 @@ pytest-cov>=4.0
 ruff>=0.4
 build>=1.0
 twine>=5.0
+pandas>=1.5
