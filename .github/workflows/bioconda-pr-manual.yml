@@ -53,15 +53,15 @@ jobs:
           FILE="bioconda-recipes/${RECIPE_PATH}"
 
           # Try common Bioconda version patterns.
-          sed -E -i "s#^(\s*\{\%\s*set\s+version\s*=\s*\").*(\"\s*\%\}\s*)$#\1${VERSION}\2#" "${FILE}" || true
-          sed -E -i "s#^(\s*version:\s*).*$#\1${VERSION}#" "${FILE}" || true
-          sed -E -i "s#^(\s*sha256:\s*).*$#\1${SHA256}#" "${FILE}"
+          sed -E -i "s#^([[:space:]]*\{\%[[:space:]]*set[[:space:]]+version[[:space:]]*=[[:space:]]*\").*(\"[[:space:]]*\%\}[[:space:]]*)$#\1${VERSION}\2#" "${FILE}" || true
+          sed -E -i "s#^([[:space:]]*version:[[:space:]]*).*$#\1${VERSION}#" "${FILE}" || true
+          sed -E -i "s#^([[:space:]]*sha256:[[:space:]]*).*$#\1${SHA256}#" "${FILE}"
 
-          grep -Eq "^(\s*\{\%\s*set\s+version\s*=\s*\"${VERSION}\"\s*\%\}\s*|\s*version:\s*${VERSION}\s*)$" "${FILE}" || {
+          grep -Eq "^([[:space:]]*\{\%[[:space:]]*set[[:space:]]+version[[:space:]]*=[[:space:]]*\"${VERSION}\"[[:space:]]*\%\}[[:space:]]*|[[:space:]]*version:[[:space:]]*${VERSION}[[:space:]]*)$" "${FILE}" || {
             echo "Could not update version in recipe" >&2
             exit 1
           }
-          grep -Eq "^\s*sha256:\s*${SHA256}\s*$" "${FILE}" || {
+          grep -Eq "^[[:space:]]*sha256:[[:space:]]*${SHA256}[[:space:]]*$" "${FILE}" || {
             echo "Could not update sha256 in recipe" >&2
             exit 1
           }
