@@ -33,18 +33,7 @@ jobs:
           set -euo pipefail
           VERSION="${{ steps.v.outputs.version }}"
           curl -fsSL "https://pypi.org/pypi/${PYPI_NAME}/${VERSION}/json" > pypi.json
-          SHA256="$(python - <<'PY'
-import json
-with open('pypi.json', 'r', encoding='utf-8') as f:
-    data = json.load(f)
-for u in data.get('urls', []):
-    if u.get('packagetype') == 'sdist':
-        print(u['digests']['sha256'])
-        break
-else:
-    raise SystemExit('No sdist found')
-PY
-)"
+          SHA256="$(python -c "import json; d=json.load(open('pypi.json', 'r', encoding='utf-8')); print(next(u['digests']['sha256'] for u in d.get('urls', []) if u.get('packagetype') == 'sdist'))")"
           echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout bioconda fork
@@ -63,34 +52,19 @@ PY
           SHA256="${{ steps.pypi.outputs.sha256 }}"
           FILE="bioconda-recipes/${RECIPE_PATH}"
 
-          python - <<'PY'
-import os
-import re
+          # Try common Bioconda version patterns.
+          sed -E -i "s#^(\s*\{\%\s*set\s+version\s*=\s*\").*(\"\s*\%\}\s*)$#\1${VERSION}\2#" "${FILE}" || true
+          sed -E -i "s#^(\s*version:\s*).*$#\1${VERSION}#" "${FILE}" || true
+          sed -E -i "s#^(\s*sha256:\s*).*$#\1${SHA256}#" "${FILE}"
 
-file_path = os.environ['FILE']
-version = os.environ['VERSION']
-sha256 = os.environ['SHA256']
-
-with open(file_path, 'r', encoding='utf-8') as f:
-    text = f.read()
-
-text, c1 = re.subn(r'^(\s*\{\%\s*set\s+version\s*=\s*")[^"]+("\s*\%\}\s*)$', rf'\g<1>{version}\2', text, flags=re.MULTILINE)
-if c1 == 0:
-    text, c1 = re.subn(r'^(\s*version:\s*)[0-9A-Za-z._-]+(\s*)$', rf'\g<1>{version}\2', text, flags=re.MULTILINE)
-text, c2 = re.subn(r'^(\s*sha256:\s*)[0-9a-f]{64}(\s*)$', rf'\g<1>{sha256}\2', text, flags=re.MULTILINE)
-
-if c1 == 0:
-    raise SystemExit('Could not update version in recipe')
-if c2 == 0:
-    raise SystemExit('Could not update sha256 in recipe')
-
-with open(file_path, 'w', encoding='utf-8') as f:
-    f.write(text)
-PY
-        env:
-          FILE: bioconda-recipes/${{ env.RECIPE_PATH }}
-          VERSION: ${{ steps.v.outputs.version }}
-          SHA256: ${{ steps.pypi.outputs.sha256 }}
+          grep -Eq "^(\s*\{\%\s*set\s+version\s*=\s*\"${VERSION}\"\s*\%\}\s*|\s*version:\s*${VERSION}\s*)$" "${FILE}" || {
+            echo "Could not update version in recipe" >&2
+            exit 1
+          }
+          grep -Eq "^\s*sha256:\s*${SHA256}\s*$" "${FILE}" || {
+            echo "Could not update sha256 in recipe" >&2
+            exit 1
+          }
 
       - name: Commit and push branch
         id: commit
