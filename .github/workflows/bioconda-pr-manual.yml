@@ -1,15 +1,14 @@
-name: Open Bioconda Recipe PR (Manual)
+name: Bioconda PR Manual
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to submit (example: 1.3.1)."
+        description: Version to submit (example 1.3.1)
         required: true
         type: string
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   PYPI_NAME: tau-community-detection
   RECIPE_PATH: recipes/tau-community-detection/meta.yaml
   UPSTREAM_BIOCONDA_REPO: bioconda/bioconda-recipes
@@ -17,53 +16,38 @@ env:
 jobs:
   open-pr:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - name: Resolve version
-        id: version
+        id: v
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${{ inputs.version }}"
           VERSION="${VERSION#v}"
-          if [[ -z "${VERSION}" ]]; then
-            echo "Version input is required."
-            exit 1
-          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Get sdist metadata from PyPI
+      - name: Get PyPI sdist sha256
         id: pypi
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          python - <<'PY'
+          VERSION="${{ steps.v.outputs.version }}"
+          curl -fsSL "https://pypi.org/pypi/${PYPI_NAME}/${VERSION}/json" > pypi.json
+          SHA256="$(python - <<'PY'
 import json
-import os
-import urllib.request
-
-pypi_name = os.environ["PYPI_NAME"]
-version = os.environ["VERSION"]
-url = f"https://pypi.org/pypi/{pypi_name}/{version}/json"
-
-with urllib.request.urlopen(url) as response:
-    payload = json.load(response)
-
-sdist = next((item for item in payload.get("urls", []) if item.get("packagetype") == "sdist"), None)
-if sdist is None:
-    raise SystemExit(f"No sdist found for {pypi_name} {version}")
-
-output = os.environ["GITHUB_OUTPUT"]
-with open(output, "a", encoding="utf-8") as fh:
-    fh.write(f"sha256={sdist['digests']['sha256']}\\n")
+with open('pypi.json', 'r', encoding='utf-8') as f:
+    data = json.load(f)
+for u in data.get('urls', []):
+    if u.get('packagetype') == 'sdist':
+        print(u['digests']['sha256'])
+        break
+else:
+    raise SystemExit('No sdist found')
 PY
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+)"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout bioconda-recipes fork
+      - name: Checkout bioconda fork
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.BIOCONDA_FORK_REPO }}
@@ -71,65 +55,49 @@ PY
           ref: master
           path: bioconda-recipes
 
-      - name: Update recipe version and sha
+      - name: Update recipe
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.v.outputs.version }}"
           SHA256="${{ steps.pypi.outputs.sha256 }}"
           FILE="bioconda-recipes/${RECIPE_PATH}"
 
           python - <<'PY'
 import os
 import re
-from pathlib import Path
 
-file_path = Path(os.environ["FILE"])
-version = os.environ["VERSION"]
-sha256 = os.environ["SHA256"]
+file_path = os.environ['FILE']
+version = os.environ['VERSION']
+sha256 = os.environ['SHA256']
 
-text = file_path.read_text(encoding="utf-8")
+with open(file_path, 'r', encoding='utf-8') as f:
+    text = f.read()
 
-new_text, version_count = re.subn(
-    r'^(\s*\{\%\s*set\s+version\s*=\s*")[^"]+("\s*\%\}\s*)$',
-    rf'\g<1>{version}\2',
-    text,
-    flags=re.MULTILINE,
-)
+text, c1 = re.subn(r'^(\s*\{\%\s*set\s+version\s*=\s*")[^"]+("\s*\%\}\s*)$', rf'\g<1>{version}\2', text, flags=re.MULTILINE)
+if c1 == 0:
+    text, c1 = re.subn(r'^(\s*version:\s*)[0-9A-Za-z._-]+(\s*)$', rf'\g<1>{version}\2', text, flags=re.MULTILINE)
+text, c2 = re.subn(r'^(\s*sha256:\s*)[0-9a-f]{64}(\s*)$', rf'\g<1>{sha256}\2', text, flags=re.MULTILINE)
 
-if version_count == 0:
-    new_text, version_count = re.subn(
-        r'^(\s*version:\s*)[0-9A-Za-z._-]+(\s*)$',
-        rf'\g<1>{version}\2',
-        new_text,
-        flags=re.MULTILINE,
-    )
+if c1 == 0:
+    raise SystemExit('Could not update version in recipe')
+if c2 == 0:
+    raise SystemExit('Could not update sha256 in recipe')
 
-new_text, sha_count = re.subn(
-    r'^(\s*sha256:\s*)[0-9a-f]{64}(\s*)$',
-    rf'\g<1>{sha256}\2',
-    new_text,
-    flags=re.MULTILINE,
-)
-
-if version_count == 0:
-    raise SystemExit("Could not find a version field in the Bioconda recipe")
-if sha_count == 0:
-    raise SystemExit("Could not find a sha256 field in the Bioconda recipe")
-
-file_path.write_text(new_text, encoding="utf-8")
+with open(file_path, 'w', encoding='utf-8') as f:
+    f.write(text)
 PY
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          SHA256: ${{ steps.pypi.outputs.sha256 }}
           FILE: bioconda-recipes/${{ env.RECIPE_PATH }}
+          VERSION: ${{ steps.v.outputs.version }}
+          SHA256: ${{ steps.pypi.outputs.sha256 }}
 
       - name: Commit and push branch
         id: commit
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.v.outputs.version }}"
           BRANCH="bump-${PYPI_NAME}-${VERSION}"
 
           cd bioconda-recipes
@@ -138,7 +106,6 @@ PY
           git checkout -B "${BRANCH}"
 
           if git diff --quiet -- "${RECIPE_PATH}"; then
-            echo "No recipe changes detected."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
             echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
             exit 0
@@ -147,29 +114,23 @@ PY
           git add "${RECIPE_PATH}"
           git commit -m "bioconda: bump ${PYPI_NAME} to ${VERSION}"
           git push --force-with-lease origin "${BRANCH}"
-
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
 
-      - name: Open or update PR
+      - name: Open PR
         if: steps.commit.outputs.has_changes == 'true'
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.BIOCONDA_TOKEN }}
+        shell: bash
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.v.outputs.version }}"
           BRANCH="${{ steps.commit.outputs.branch }}"
           HEAD_REF="${{ secrets.BIOCONDA_FORK_OWNER }}:${BRANCH}"
 
-          EXISTING_PR_NUMBER="$(gh pr list \
-            --repo "${UPSTREAM_BIOCONDA_REPO}" \
-            --head "${HEAD_REF}" \
-            --json number \
-            --jq '.[0].number')"
-
-          if [[ -n "${EXISTING_PR_NUMBER}" ]]; then
-            echo "PR #${EXISTING_PR_NUMBER} already exists for ${HEAD_REF}."
+          EXISTING_PR="$(gh pr list --repo "${UPSTREAM_BIOCONDA_REPO}" --head "${HEAD_REF}" --json number --jq '.[0].number')"
+          if [[ -n "${EXISTING_PR}" ]]; then
+            echo "PR exists: #${EXISTING_PR}"
             exit 0
           fi
 
@@ -178,4 +139,4 @@ PY
             --base master \
             --head "${HEAD_REF}" \
             --title "bioconda: bump ${PYPI_NAME} to ${VERSION}" \
-            --body "Automated update after PyPI release ${VERSION}.\n\n- Package: ${PYPI_NAME}\n- Version: ${VERSION}\n- Source: PyPI sdist"
+            --body "Automated update after PyPI release ${VERSION}."
