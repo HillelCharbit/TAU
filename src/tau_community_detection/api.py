@@ -32,61 +32,6 @@ def _get_node_count(graph: ig.Graph | nx.Graph | str) -> int:
             f"graph must be ig.Graph, nx.Graph, or filepath, got {type(graph)}"
         )
 
-
-def _auto_scale_population_size(node_count: int) -> int:
-    """Auto-scale population size based on graph complexity.
-    
-    Small graphs (< 1,000 nodes): Smaller population, thorough search.
-    Medium graphs (1K-10K nodes): Balanced population.
-    Large graphs (> 10K nodes): Larger population to explore diversity.
-    
-    Parameters
-    ----------
-    node_count : int
-        Number of nodes in the graph.
-        
-    Returns
-    -------
-    int
-        Suggested population size.
-    """
-    if node_count < 1_000:
-        return 10
-    elif node_count < 10_000:
-        return 30
-    elif node_count < 100_000:
-        return 100
-    else:
-        return max(150, min(300, node_count // 500))
-
-
-def _auto_scale_max_generations(node_count: int) -> int:
-    """Auto-scale max generations based on graph complexity.
-    
-    Small graphs: More generations for thorough convergence.
-    Large graphs: Fewer generations with strict early-stopping.
-    
-    Parameters
-    ----------
-    node_count : int
-        Number of nodes in the graph.
-        
-    Returns
-    -------
-    int
-        Suggested max generations.
-    """
-    if node_count < 1_000:
-        return 200
-    elif node_count < 10_000:
-        return 100
-    elif node_count < 100_000:
-        return 50
-    else:
-        # Large graphs: aggressive early-stopping via config.stopping_generations
-        return 20
-
-
 def _get_worker_backend() -> str:
     """Detect and return the best joblib backend for this environment.
     
@@ -291,16 +236,7 @@ def run_clustering(
             )
     
     # Step 5: Create and run TAU clustering
-    if worker_count == 1:
-        if verbose:
-            print(f"Running TAU in sequential mode (single-threaded)")
-    else:
-        if verbose:
-            print(
-                f"Running TAU with {worker_count} workers "
-                f"(population_size={population_size}, max_generations={max_generations})"
-            )
-    
+
     clustering = TauClustering(
         graph,
         population_size=population_size,
