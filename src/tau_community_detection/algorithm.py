@@ -32,6 +32,45 @@ except RuntimeError:
     pass
 
 
+# LokyPool wrapper: use loky executor when available to avoid importing
+# user's __main__ module in spawned worker processes (helps on Windows).
+class LokyPool:
+    def __init__(self, processes, initializer=None, initargs=()):
+        try:
+            from loky.process_executor import LokyProcessPoolExecutor
+        except Exception as exc:
+            raise ImportError("loky unavailable") from exc
+        # Loky supports initializer/initargs similar to multiprocessing
+        self._executor = LokyProcessPoolExecutor(max_workers=processes, initializer=initializer, initargs=initargs)
+
+    def map(self, func, iterable, chunksize: int = 1):
+        return list(self._executor.map(func, iterable))
+
+    def map_async(self, func, iterable, chunksize: int = 1):
+        futures = [self._executor.submit(func, item) for item in iterable]
+
+        class _AsyncResult:
+            def __init__(self, futures):
+                self._futures = futures
+
+            def get(self, timeout=None):
+                return [f.result(timeout) for f in self._futures]
+
+        return _AsyncResult(futures)
+
+    def close(self) -> None:
+        try:
+            self._executor.shutdown(wait=False)
+        except Exception:
+            pass
+
+    def join(self) -> None:
+        try:
+            self._executor.shutdown(wait=True)
+        except Exception:
+            pass
+
+
 def _is_interactive_environment() -> bool:
     """Detect if running in Jupyter, IPython, or similar interactive environment."""
     try:
@@ -369,9 +408,16 @@ class TauClustering:
         # Attempt parallel execution
         if worker_count > 1:
             try:
-                self._pool = Pool(worker_count, initializer=init_worker, initargs=initargs)
-                self._pool_processes = worker_count
-                return self._pool
+                # Prefer loky-based pool to avoid re-importing user's __main__ on spawn
+                try:
+                    self._pool = LokyPool(worker_count, initializer=init_worker, initargs=initargs)
+                    self._pool_processes = worker_count
+                    return self._pool
+                except ImportError:
+                    # loky not available; fall back to multiprocessing.Pool
+                    self._pool = Pool(worker_count, initializer=init_worker, initargs=initargs)
+                    self._pool_processes = worker_count
+                    return self._pool
             except (PermissionError, RuntimeError, ValueError, OSError) as exc:
                 # Common failures in Windows/Jupyter/macOS interactive environments
                 if _is_interactive_environment():
