@@ -159,8 +159,8 @@ class TauClustering:
     def __init__(
         self,
         graph_source: ig.Graph | nx.Graph | str,
-        population_size: int,
-        max_generations: int,
+        population_size: int = 60,
+        max_generations: int = 20,
         config: Optional[TauConfig] = None,
     ):
         self._pool: Optional[Pool] = None
