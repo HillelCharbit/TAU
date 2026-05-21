@@ -309,6 +309,14 @@ class TauClustering:
             self.graph,
             membership=membership_result.tolist(),
         )
+        if "weight" in self.graph.es.attributes():
+            clustering_result._modularity = float(
+                self.graph.modularity(
+                    membership_result.tolist(),
+                    weights=self.graph.es["weight"],
+                )
+            )
+            clustering_result._modularity_dirty = False
         if original_membership is not None:
             clustering_result.original_membership = original_membership
         if track_stats and generation_stats is not None:

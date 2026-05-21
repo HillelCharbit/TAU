@@ -173,7 +173,7 @@ If you use TAU in your research, please cite the original algorithm paper:
 ---
 ## License & Versioning
 
-**Current Version:** 1.3.0
+**Current Version:** 1.3.1
 **License:** This project is licensed under the [MIT License](LICENSE).
 
 See the [Changelog](CHANGELOG.md) for a detailed history of changes and updates.
