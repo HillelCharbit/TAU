@@ -19,7 +19,7 @@ multiprocessing support.
 - **Evolutionary search**: Maintains a population of candidate partitions and applies crossover and mutation tailored for graph clustering.
 - **Leiden optimization**: Refines every candidate with Leiden to ensure modularity gains each generation.
 - **Multiprocessing aware**: Utilises parallel worker pools for population optimization with automatic fallback to sequential mode.
-- **Reproducible runs**: Pass `random_seed` to seed TAU's numpy RNG and igraph's Python-level RNG callbacks for consistent behaviour across runs.
+- **Fully reproducible**: Pass `random_seed` to seed both TAU's numpy RNG and igraph's Leiden RNG — same seed always produces identical results.
 - **Input flexibility**: Accepts `igraph.Graph`, `networkx.Graph`, or a file path. Edge weights are auto-detected.
 - **Simple API**: Use `run_clustering(graph)` for zero-friction usage, or drop down to `TauClustering` + `TauConfig` for full control.
 
@@ -153,7 +153,7 @@ All hyperparameters live on `TauConfig`. Every field is validated on constructio
 | `sim_sample_size` | 20 000 | int or None | Node sample size for Jaccard similarity (None = all nodes) |
 | `worker_chunk_size` | `None` | int or None | Tasks per worker per batch (None = auto) |
 | `reuse_worker_pool` | `True` | bool | Keep worker pool alive between calls on the same instance |
-| `random_seed` | `None` | int or None | Seeds numpy and igraph's Python-level RNG callbacks for consistent runs |
+| `random_seed` | `None` | int or None | Seeds both numpy and igraph's Leiden RNG for fully deterministic results |
 | `verbose` | `False` | bool | Log progress to the standard Python logger |
 
 `run_clustering()` exposes the most common parameters directly. Any `TauConfig` field can also be passed as a keyword argument:

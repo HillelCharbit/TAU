@@ -5,7 +5,6 @@ import multiprocessing
 from typing import Iterable, Literal, Optional, Sequence, Union, overload
 import logging
 import time
-import threading
 import sys
 import warnings
 
@@ -91,26 +90,8 @@ class _SequentialPool:
         items = list(iterable)
 
         class _AsyncResult:
-            def __init__(self):
-                self._result = None
-                self._exc = None
-                self._done = threading.Event()
-                self._thread = threading.Thread(target=self._run, daemon=True)
-                self._thread.start()
-
-            def _run(self):
-                try:
-                    self._result = [func(item) for item in items]
-                except Exception as exc:
-                    self._exc = exc
-                finally:
-                    self._done.set()
-
             def get(self, timeout=None):
-                self._done.wait(timeout=timeout)
-                if self._exc is not None:
-                    raise self._exc
-                return self._result
+                return [func(item) for item in items]
 
         return _AsyncResult()
 

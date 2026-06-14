@@ -33,11 +33,10 @@ def configure_main(
     _resolution_parameter = resolution_parameter
     _WEIGHTS = list(graph.es["weight"]) if "weight" in graph.es.attributes() else None
     _RNG = np.random.default_rng(seed)
-    # Seed igraph's Python-level RNG callbacks. This improves reproducibility
-    # for operations that call back to Python, but igraph's C-level Leiden
-    # algorithm retains its own internal state that cannot be seeded from Python.
-    # None reverts to igraph's default unseeded PCG32 generator.
-    ig.set_random_number_generator(random.Random(seed) if seed is not None else None)
+    # igraph uses Python's global random module by default. Seeding it makes
+    # Leiden deterministic. When no seed is given we leave the global state alone.
+    if seed is not None:
+        random.seed(seed)
 
 def init_worker(
     graph_path: str,
