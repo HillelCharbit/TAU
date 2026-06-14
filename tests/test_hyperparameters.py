@@ -380,21 +380,18 @@ class TestTauConfigResolvers:
 
 class TestHyperparameterBehavior:
 
-    def test_random_seed_controls_numpy_rng(self, g):
-        # The seed controls TAU's numpy RNG (population init, selection, crossover).
-        # igraph's Leiden uses its own internal RNG which is not controlled here,
-        # so exact membership equality across runs is not guaranteed. We verify
-        # that the seed is accepted and produces a valid result consistently.
+    def test_random_seed_is_reproducible(self, g):
+        # Both numpy and igraph's Leiden RNG are seeded, so results are fully deterministic.
         r1 = _run(g, population_size=4, max_generations=2, random_seed=42)
         r2 = _run(g, population_size=4, max_generations=2, random_seed=42)
-        assert isinstance(r1, ig.VertexClustering)
-        assert isinstance(r2, ig.VertexClustering)
-        assert len(r1.membership) == len(r2.membership) == g.vcount()
+        assert r1.membership == r2.membership
 
-    def test_different_seeds_accepted_without_error(self, g):
-        for seed in range(5):
-            result = _run(g, population_size=4, max_generations=2, random_seed=seed)
-            assert isinstance(result, ig.VertexClustering)
+    def test_different_seeds_produce_different_results(self, g):
+        memberships = {
+            tuple(_run(g, population_size=4, max_generations=2, random_seed=s).membership)
+            for s in range(8)
+        }
+        assert len(memberships) > 1, "all seeds produced identical results — seeding is broken"
 
     def test_track_stats_false_returns_vertex_clustering(self, g):
         result = _run(g)

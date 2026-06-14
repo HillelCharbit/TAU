@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import random
 from dataclasses import dataclass
 import sys
 from typing import Optional, Sequence
@@ -32,6 +33,9 @@ def configure_main(
     _resolution_parameter = resolution_parameter
     _WEIGHTS = list(graph.es["weight"]) if "weight" in graph.es.attributes() else None
     _RNG = np.random.default_rng(seed)
+    # Seed igraph's internal RNG so Leiden results are reproducible.
+    # None reverts to igraph's default unseeded PCG32 generator.
+    ig.set_random_number_generator(random.Random(seed) if seed is not None else None)
 
 def init_worker(
     graph_path: str,
