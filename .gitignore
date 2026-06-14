@@ -37,3 +37,7 @@ tests/proofread_filtered
 *.prof
 *_report.txt
 test_mp.py
+
+# Research / experiments
+experiments/
+uv.lock
