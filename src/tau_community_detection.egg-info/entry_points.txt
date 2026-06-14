@@ -1,2 +1,0 @@
-[console_scripts]
-tau = tau_community_detection.script:main
