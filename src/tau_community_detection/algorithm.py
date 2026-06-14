@@ -1,10 +1,10 @@
 """High-level TAU clustering API."""
 from __future__ import annotations
 
-from multiprocessing import Pool, set_start_method
-from typing import Iterable, Optional, Sequence
+import multiprocessing
+from typing import Iterable, Literal, Optional, Sequence, overload
+import logging
 import time
-import weakref
 import threading
 import sys
 import warnings
@@ -26,10 +26,8 @@ from .partition import (
     optimize_partition,
 )
 
-try:  # ensure spawn context for cross-platform safety
-    set_start_method("spawn")
-except RuntimeError:
-    pass
+_CROSSOVER_PROBABILITY = 0.5
+_logger = logging.getLogger(__name__)
 
 
 # LokyPool wrapper: use loky executor when available to avoid importing
@@ -163,7 +161,11 @@ class TauClustering:
         max_generations: int = 20,
         config: Optional[TauConfig] = None,
     ):
-        self._pool: Optional[Pool] = None
+        if population_size <= 0:
+            raise ValueError(f"population_size must be > 0, got {population_size}")
+        if max_generations <= 0:
+            raise ValueError(f"max_generations must be > 0, got {max_generations}")
+        self._pool = None  # LokyPool | multiprocessing.Pool | _SequentialPool
         self._pool_processes: Optional[int] = None
         self.config = config or TauConfig()
         self.config.population_size = population_size
@@ -195,6 +197,10 @@ class TauClustering:
                 f"max_generations={self.config.max_generations}"
         )
 
+    @overload
+    def run(self, track_stats: Literal[False] = ...) -> ig.VertexClustering: ...
+    @overload
+    def run(self, track_stats: Literal[True]) -> tuple[ig.VertexClustering, list[dict[str, float]]]: ...
     def run(self, track_stats: bool = False):
         worker_count = self.config.resolve_worker_count()
         chunk_size = self._resolve_chunk_size(worker_count)
@@ -223,17 +229,17 @@ class TauClustering:
             start_time = time.perf_counter()
             
             # Queue optimize tasks
-            opt_async = pool.map_async(optimize_partition, population, chunksize=chunk_size)
-            
+            optimize_async = pool.map_async(optimize_partition, population, chunksize=chunk_size)
+
             # Queue immigrant tasks simultaneously allowing idle workers to pick them up
-            imm_async = None
+            immigrant_async = None
             if immigrant_count > 0:
                 low, high = self.config.sample_fraction_range
                 fractions = self.rng.uniform(low, high, immigrant_count)
-                imm_async = pool.map_async(create_partition, fractions.tolist(), chunksize=chunk_size)
+                immigrant_async = pool.map_async(create_partition, fractions.tolist(), chunksize=chunk_size)
 
             # Block until optimization is done
-            optimized = opt_async.get()
+            optimized = optimize_async.get()
             population[:] = optimized
 
             fitnesses = np.array([p.fitness if p.fitness is not None else float("-inf") for p in population])
@@ -242,8 +248,8 @@ class TauClustering:
             best_partition = population[best_idx]
             best_modularity = float(best_partition.fitness or -np.inf)
             if last_best_membership is not None:
-                jacc = self._similarity_arrays(best_partition.membership, last_best_membership)
-                if jacc >= self.config.stopping_jaccard:
+                jaccard = self._similarity_arrays(best_partition.membership, last_best_membership)
+                if jaccard >= self.config.stopping_jaccard:
                     convergence_streak += 1
                 else:
                     convergence_streak = 0
@@ -255,15 +261,15 @@ class TauClustering:
                 break
 
             population.sort(key=lambda part: part.fitness or float("-inf"), reverse=True)
-            elt_st = time.perf_counter()
+            elite_start = time.perf_counter()
             elite_indices = self._elitist_selection(population, self.config.elite_similarity_threshold, elite_count)
-            elt_rt = time.perf_counter() - elt_st
+            elite_elapsed = time.perf_counter() - elite_start
             elites = [population[i] for i in elite_indices]
 
-            crim_st = time.perf_counter()
+            crossover_start = time.perf_counter()
             offspring = self._produce_offspring(pool, chunk_size, population, offspring_count)
-            immigrants = imm_async.get() if imm_async is not None else []
-            crim_rt = time.perf_counter() - crim_st
+            immigrants = immigrant_async.get() if immigrant_async is not None else []
+            crossover_elapsed = time.perf_counter() - crossover_start
 
             if offspring:
                 mutated_offspring = pool.map(mutate_partition, offspring, chunksize=chunk_size)
@@ -275,9 +281,9 @@ class TauClustering:
 
             gen_elapsed = time.perf_counter() - start_time
             self._log(
-                f'Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: '
-                f'{avg_fitness:.5f}; Time per generation: {gen_elapsed:.3f}; '
-                f'convergence: {convergence_streak} ; elt-runtime={elt_rt:.3f} ; crim-runtime={crim_rt:.3f}'
+                f"Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: "
+                f"{avg_fitness:.5f}; Time per generation: {gen_elapsed:.3f}; "
+                f"convergence: {convergence_streak}; elite_runtime={elite_elapsed:.3f}; crossover_runtime={crossover_elapsed:.3f}"
             )
             if track_stats and generation_stats is not None:
                 generation_stats.append(
@@ -287,8 +293,8 @@ class TauClustering:
                         "average_fitness": avg_fitness,
                         "time_per_generation": gen_elapsed,
                         "convergence": convergence_streak,
-                        "elite_runtime": elt_rt,
-                        "crossover_runtime": crim_rt,
+                        "elite_runtime": elite_elapsed,
+                        "crossover_runtime": crossover_elapsed,
                     }
                 )
 
@@ -335,7 +341,7 @@ class TauClustering:
 
     def _log(self, message: str) -> None:
         if self.config.verbose:
-            print(message)
+            _logger.info(message)
 
     
     def _create_population(self, pool: Pool, size: int, chunk_size: int) -> list[Partition]:
@@ -360,7 +366,7 @@ class TauClustering:
         for _ in range(count):
             parents = self.rng.choice(pop_size, size=2, replace=False, p=self.selection_probs)
             parent_a, parent_b = population[int(parents[0])], population[int(parents[1])]
-            if self.rng.random() > 0.5:
+            if self.rng.random() > _CROSSOVER_PROBABILITY:
                 sample_fraction = (parent_a._sample_fraction + parent_b._sample_fraction) / 2.0
                 crossover_jobs.append(
                     (parent_a.membership, parent_b.membership, sample_fraction)
@@ -422,8 +428,10 @@ class TauClustering:
                     self._pool_processes = worker_count
                     return self._pool
                 except ImportError:
-                    # loky not available; fall back to multiprocessing.Pool
-                    self._pool = Pool(worker_count, initializer=init_worker, initargs=initargs)
+                    # loky not available; fall back to multiprocessing spawn pool
+                    self._pool = multiprocessing.get_context("spawn").Pool(
+                        worker_count, initializer=init_worker, initargs=initargs
+                    )
                     self._pool_processes = worker_count
                     return self._pool
             except (PermissionError, RuntimeError, ValueError, OSError) as exc:
@@ -454,7 +462,7 @@ class TauClustering:
         return self._pool
 
     def _shutdown_pool(self) -> None:
-        if self._pool is None:
+        if getattr(self, "_pool", None) is None:
             return
         self._pool.close()
         self._pool.join()

@@ -1,6 +1,7 @@
 """Graph loading for TAU."""
 from __future__ import annotations
 
+import atexit
 import tempfile
 from pathlib import Path
 
@@ -90,7 +91,7 @@ def load_graph(
         graph.es["weight"] = [default_weight] * graph.ecount()
 
     _ensure_vertex_names(graph)
-    return graph, weighted, _graph_to_temp_file(graph, weighted)
+    return graph, weighted, _graph_to_temp_file(graph)
 
 def load_graph_worker(
     path: str,
@@ -163,14 +164,14 @@ def _preprocess_edgelist(path: str) -> str:
                     fd.write(clean + "\n")
         return fd.name
 
-def _graph_to_temp_file(graph: ig.Graph, weighted: bool) -> str:
+def _graph_to_temp_file(graph: ig.Graph) -> str:
     """Write igraph to temp pickle file so workers can reload identical graph."""
     global _TEMP_GRAPH_PATH
-    _ = weighted  # weighted preserved for backwards compatibility
-
+    if _TEMP_GRAPH_PATH is not None:
+        _TEMP_GRAPH_PATH.unlink(missing_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".igraph", delete=False) as fd:
         _TEMP_GRAPH_PATH = Path(fd.name)
-
+    atexit.register(lambda p=_TEMP_GRAPH_PATH: p.unlink(missing_ok=True))
     graph.write_pickle(str(_TEMP_GRAPH_PATH))
     return str(_TEMP_GRAPH_PATH)
 

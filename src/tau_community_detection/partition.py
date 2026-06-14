@@ -223,9 +223,8 @@ class Partition:
             subgraph.community_leading_eigenvector(clusters=2).membership,
             dtype=MEMBERSHIP_DTYPE,
         )
-        new_assignment[new_assignment == 0] = comm_id
-        new_assignment[new_assignment == 1] = self.n_comms
-        membership[membership == comm_id] = new_assignment
+        new_assignment = np.where(new_assignment == 0, comm_id, self.n_comms)
+        membership[indices] = new_assignment
 
     def _random_split(
         self, rng: np.random.Generator, membership: np.ndarray, indices: np.ndarray
@@ -251,8 +250,10 @@ class Partition:
             comm1, comm2 = membership[v1], membership[v2]
             if comm1 == comm2:
                 continue
+            last = self.n_comms - 1
             membership[membership == comm1] = comm2
-            membership[membership == self.n_comms - 1] = comm1
+            if comm1 != last and comm2 != last:
+                membership[membership == last] = comm1
             self.n_comms = max(self.n_comms - 1, 1)
             break
 
