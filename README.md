@@ -89,6 +89,8 @@ For full control over the lifecycle — including reusing the worker pool across
 from tau_community_detection import TauClustering, TauConfig
 
 config = TauConfig(
+    population_size=60,
+    max_generations=20,
     resolution_parameter=1.0,
     elite_fraction=0.15,
     immigrant_fraction=0.2,
@@ -97,7 +99,7 @@ config = TauConfig(
     verbose=True,
 )
 
-with TauClustering(g, population_size=60, max_generations=30, config=config) as tau:
+with TauClustering(g, config=config) as tau:
     clustering, stats = tau.run(track_stats=True)
 
 print(f"Ran for {len(stats)} generations")
@@ -136,7 +138,7 @@ All hyperparameters live on `TauConfig`. Every field is validated on constructio
 | Parameter | Default | Valid range | Description |
 |---|---|---|---|
 | `population_size` | 60 | > 0 | Number of candidate partitions per generation |
-| `max_generations` | 500 | > 0 | Hard cap on evolutionary iterations |
+| `max_generations` | 20 | > 0 | Hard cap on evolutionary iterations |
 | `worker_count` | `None` | ≥ 1 | Parallel workers (default: CPU count, capped by population size) |
 | `elite_fraction` | 0.1 | (0, 1] | Fraction of best partitions preserved each generation |
 | `immigrant_fraction` | 0.15 | (0, 1] | Fraction of fresh random partitions injected each generation |
@@ -148,11 +150,7 @@ All hyperparameters live on `TauConfig`. Every field is validated on constructio
 | `resolution_parameter` | 1.0 | > 0 | Leiden resolution — higher values produce more, smaller communities |
 | `sample_fraction_range` | (0.2, 0.9) | 0 < low ≤ high ≤ 1 | Range for random subgraph sampling during population init |
 | `is_weighted` | `None` | bool or None | Override weight auto-detection (`None` = auto) |
-| `default_edge_weight` | 1.0 | > 0 | Weight assigned to edges when graph is treated as unweighted |
-| `weight_attribute` | `"weight"` | str or None | Edge attribute name to read weights from |
 | `sim_sample_size` | 20 000 | int or None | Node sample size for Jaccard similarity (None = all nodes) |
-| `worker_chunk_size` | `None` | int or None | Tasks per worker per batch (None = auto) |
-| `reuse_worker_pool` | `True` | bool | Keep worker pool alive between calls on the same instance |
 | `random_seed` | `None` | int or None | Seeds both numpy and igraph's Leiden RNG for fully deterministic results |
 | `verbose` | `False` | bool | Log progress to the standard Python logger |
 

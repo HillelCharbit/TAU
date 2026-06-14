@@ -23,7 +23,7 @@ def run_clustering(
     random_seed: Optional[int] = None,
     verbose: bool = False,
     n_iterations: int = 3,
-    num_workers: Optional[int] = None,
+    worker_count: Optional[int] = None,
     **config_kwargs,
 ) -> ig.VertexClustering:
     """Find community structure using TAU evolutionary clustering.
@@ -52,7 +52,7 @@ def run_clustering(
     n_iterations : int, default=3
         Number of Leiden algorithm iterations per fitness evaluation.
 
-    num_workers : int, optional
+    worker_count : int, optional
         Number of parallel workers. If None, uses CPU count. Set to 1 to force
         sequential processing (useful for debugging or interactive environments).
 
@@ -128,7 +128,7 @@ def run_clustering(
     config = TauConfig(
         population_size=population_size,
         max_generations=max_generations,
-        worker_count=num_workers,
+        worker_count=worker_count,
         n_iterations=n_iterations,
         resolution_parameter=resolution_parameter,
         random_seed=random_seed,
@@ -137,12 +137,7 @@ def run_clustering(
     )
 
     # Step 3: Run clustering
-    return TauClustering(
-        graph,
-        population_size=population_size,
-        max_generations=max_generations,
-        config=config,
-    ).run()
+    return TauClustering(graph, config=config).run()
 
 
 __all__ = ["run_clustering"]

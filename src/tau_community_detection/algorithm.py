@@ -141,25 +141,17 @@ class TauClustering:
     def __init__(
         self,
         graph_source: ig.Graph | nx.Graph | str,
-        population_size: int = 60,
-        max_generations: int = 20,
         config: Optional[TauConfig] = None,
     ):
-        if population_size <= 0:
-            raise ValueError(f"population_size must be > 0, got {population_size}")
-        if max_generations <= 0:
-            raise ValueError(f"max_generations must be > 0, got {max_generations}")
         self._pool = None  # LokyPool | multiprocessing.Pool | _SequentialPool
         self._pool_processes: Optional[int] = None
         self.config = config or TauConfig()
-        self.config.population_size = population_size
-        self.config.max_generations = max_generations
 
         # Single load_graph call — returns (graph, is_weighted, path_for_workers)
         self.graph, self._resolved_is_weighted, self._graph_path = load_graph(
             graph_source,
-            weight_attr=self.config.weight_attribute,
-            default_weight=self.config.default_edge_weight,
+            weight_attr="weight",
+            default_weight=1.0,
             is_weighted=self.config.is_weighted,
         )
         self.config.is_weighted = self._resolved_is_weighted  # update config with resolved value
@@ -307,9 +299,6 @@ class TauClustering:
         if best_partition is None:
             raise RuntimeError("TAU clustering failed to produce any solution.")
 
-        if not self.config.reuse_worker_pool:
-            self._shutdown_pool()
-
         membership_result = best_partition.membership.astype(np.int64, copy=True)
         original_membership = None
         if original_names is not None and len(original_names) == len(membership_result):
@@ -421,7 +410,7 @@ class TauClustering:
             self.config.n_iterations,
             self.config.resolution_parameter,
             self._resolved_is_weighted,
-            self.config.default_edge_weight,
+            1.0,
             self.config.random_seed,
         )
         
@@ -448,7 +437,7 @@ class TauClustering:
                         "For Jupyter on Windows, consider:\n"
                         "  1. Using 'if __name__ == \"__main__\":' in scripts\n"
                         "  2. Installing loky: pip install loky\n"
-                        "  3. Running with num_workers=1\n"
+                        "  3. Running with worker_count=1\n"
                         "Falling back to sequential processing.",
                         RuntimeWarning,
                         stacklevel=3,
@@ -476,13 +465,9 @@ class TauClustering:
         self._pool_processes = None
 
     def _resolve_chunk_size(self, worker_count: int) -> int:
-        explicit = self.config.worker_chunk_size
-        if explicit is not None and explicit > 0:
-            return int(explicit)
         if worker_count <= 0:
             return 1
-        approx = max(1, (self.config.population_size + worker_count - 1) // worker_count)
-        return approx
+        return max(1, (self.config.population_size + worker_count - 1) // worker_count)
 
 
     def _similarity(self, a: Partition, b: Partition) -> float:

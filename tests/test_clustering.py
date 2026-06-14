@@ -27,8 +27,7 @@ def _run_clustering(graph, *, config_override: dict | None = None) -> np.ndarray
     )
     if config_override:
         config_kwargs.update(config_override)
-    config = TauConfig(**config_kwargs)
-    tau = TauClustering(graph, population_size=6, max_generations=1, config=config)
+    tau = TauClustering(graph, config=TauConfig(**config_kwargs))
     vertex_clustering = tau.run()
     return np.asarray(vertex_clustering.membership)
 
@@ -52,8 +51,8 @@ def test_weighted_override_preserves_weights():
 
 def test_auto_detection_sets_config_flag():
     graph = _tiny_graph(weighted=True)
-    config = TauConfig(random_seed=1, stopping_generations=1)
-    tau = TauClustering(graph, population_size=4, max_generations=1, config=config)
+    config = TauConfig(population_size=4, max_generations=1, random_seed=1, stopping_generations=1)
+    tau = TauClustering(graph, config=config)
     assert tau.config.is_weighted is True
 
 
@@ -69,12 +68,13 @@ def test_original_membership_preserves_vertex_names(tmp_path):
         )
     )
     config = TauConfig(
+        population_size=4,
+        max_generations=1,
         random_seed=7,
         stopping_generations=1,
         worker_count=1,
-        reuse_worker_pool=False,
     )
-    tau = TauClustering(str(graph_path), population_size=4, max_generations=1, config=config)
+    tau = TauClustering(str(graph_path), config=config)
     clustering = tau.run()
 
     assert hasattr(clustering, "original_membership")

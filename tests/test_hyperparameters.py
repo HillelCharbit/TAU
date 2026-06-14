@@ -41,18 +41,16 @@ def g_weighted() -> ig.Graph:
 def _run(graph, population_size=4, max_generations=2, **config_kwargs) -> ig.VertexClustering:
     """Helper: run TAU sequentially with small, fast defaults."""
     config_kwargs.setdefault("worker_count", 1)
-    config = TauConfig(**config_kwargs)
-    return TauClustering(
-        graph, population_size=population_size, max_generations=max_generations, config=config
-    ).run()
+    config_kwargs.setdefault("population_size", population_size)
+    config_kwargs.setdefault("max_generations", max_generations)
+    return TauClustering(graph, config=TauConfig(**config_kwargs)).run()
 
 
 def _run_with_stats(graph, population_size=4, max_generations=2, **config_kwargs):
     config_kwargs.setdefault("worker_count", 1)
-    config = TauConfig(**config_kwargs)
-    return TauClustering(
-        graph, population_size=population_size, max_generations=max_generations, config=config
-    ).run(track_stats=True)
+    config_kwargs.setdefault("population_size", population_size)
+    config_kwargs.setdefault("max_generations", max_generations)
+    return TauClustering(graph, config=TauConfig(**config_kwargs)).run(track_stats=True)
 
 
 # ===========================================================================
@@ -149,16 +147,6 @@ class TestTauConfigValidation:
         with pytest.raises(ValueError, match="resolution_parameter"):
             TauConfig(resolution_parameter=-1.0)
 
-    # --- default_edge_weight ---
-
-    def test_default_edge_weight_zero_raises(self):
-        with pytest.raises(ValueError, match="default_edge_weight"):
-            TauConfig(default_edge_weight=0.0)
-
-    def test_default_edge_weight_negative_raises(self):
-        with pytest.raises(ValueError, match="default_edge_weight"):
-            TauConfig(default_edge_weight=-0.5)
-
     # --- sample_fraction_range ---
 
     def test_sample_fraction_range_low_zero_raises(self):
@@ -232,9 +220,6 @@ class TestTauConfigBoundaryValues:
         cfg = TauConfig(sample_fraction_range=(1e-9, 1.0))
         assert cfg.sample_fraction_range[1] == 1.0
 
-    def test_default_edge_weight_very_small(self):
-        assert TauConfig(default_edge_weight=1e-9).default_edge_weight == pytest.approx(1e-9)
-
     def test_n_iterations_one(self):
         assert TauConfig(n_iterations=1).n_iterations == 1
 
@@ -296,40 +281,40 @@ class TestTauClusteringValidation:
 
     def test_population_size_zero_raises(self, g):
         with pytest.raises(ValueError, match="population_size"):
-            TauClustering(g, population_size=0, max_generations=2)
+            TauConfig(population_size=0)
 
     def test_population_size_negative_raises(self, g):
         with pytest.raises(ValueError, match="population_size"):
-            TauClustering(g, population_size=-5, max_generations=2)
+            TauConfig(population_size=-5)
 
     def test_max_generations_zero_raises(self, g):
         with pytest.raises(ValueError, match="max_generations"):
-            TauClustering(g, population_size=4, max_generations=0)
+            TauConfig(max_generations=0)
 
     def test_max_generations_negative_raises(self, g):
         with pytest.raises(ValueError, match="max_generations"):
-            TauClustering(g, population_size=4, max_generations=-1)
+            TauConfig(max_generations=-1)
 
     def test_invalid_graph_source_raises(self):
         with pytest.raises((TypeError, AttributeError, OSError, FileNotFoundError)):
-            TauClustering(99999, population_size=4, max_generations=2)
+            TauClustering(99999)
 
     def test_nonexistent_file_path_raises(self):
         with pytest.raises((OSError, FileNotFoundError, Exception)):
-            TauClustering("/no/such/file.graph", population_size=4, max_generations=2)
+            TauClustering("/no/such/file.graph")
 
     def test_population_size_one_is_valid(self, g):
-        config = TauConfig(worker_count=1, elite_fraction=1.0)
-        result = TauClustering(g, population_size=1, max_generations=2, config=config).run()
+        config = TauConfig(population_size=1, max_generations=2, worker_count=1, elite_fraction=1.0)
+        result = TauClustering(g, config=config).run()
         assert isinstance(result, ig.VertexClustering)
 
     def test_max_generations_one_is_valid(self, g):
         result = _run(g, population_size=4, max_generations=1)
         assert isinstance(result, ig.VertexClustering)
 
-    def test_config_overrides_stored_on_instance(self, g):
-        config = TauConfig(worker_count=1, verbose=False)
-        tau = TauClustering(g, population_size=8, max_generations=3, config=config)
+    def test_config_values_stored_on_instance(self, g):
+        config = TauConfig(population_size=8, max_generations=3, worker_count=1, verbose=False)
+        tau = TauClustering(g, config=config)
         assert tau.config.population_size == 8
         assert tau.config.max_generations == 3
 
@@ -454,13 +439,13 @@ class TestHyperparameterBehavior:
         assert isinstance(result, ig.VertexClustering)
 
     def test_is_weighted_none_auto_detects_weighted(self, g_weighted):
-        config = TauConfig(worker_count=1, is_weighted=None)
-        tau = TauClustering(g_weighted, population_size=4, max_generations=2, config=config)
+        config = TauConfig(population_size=4, max_generations=2, worker_count=1, is_weighted=None)
+        tau = TauClustering(g_weighted, config=config)
         assert tau.config.is_weighted is True
 
     def test_is_weighted_none_auto_detects_unweighted(self, g):
-        config = TauConfig(worker_count=1, is_weighted=None)
-        tau = TauClustering(g, population_size=4, max_generations=2, config=config)
+        config = TauConfig(population_size=4, max_generations=2, worker_count=1, is_weighted=None)
+        tau = TauClustering(g, config=config)
         assert tau.config.is_weighted is False
 
     def test_elite_fraction_one_all_elites_no_offspring(self, g):
@@ -478,44 +463,31 @@ class TestHyperparameterBehavior:
         assert isinstance(result, ig.VertexClustering)
 
     def test_context_manager_shuts_pool_on_exit(self, g):
-        config = TauConfig(worker_count=1)
-        with TauClustering(g, population_size=4, max_generations=2, config=config) as tau:
+        config = TauConfig(population_size=4, max_generations=2, worker_count=1)
+        with TauClustering(g, config=config) as tau:
             tau.run()
         assert tau._pool is None
-
-    def test_reuse_worker_pool_false_shuts_down_after_run(self, g):
-        config = TauConfig(worker_count=1, reuse_worker_pool=False)
-        tau = TauClustering(g, population_size=4, max_generations=2, config=config)
-        tau.run()
-        assert tau._pool is None
-
-    def test_reuse_worker_pool_true_keeps_pool_alive(self, g):
-        config = TauConfig(worker_count=1, reuse_worker_pool=True)
-        tau = TauClustering(g, population_size=4, max_generations=2, config=config)
-        tau.run()
-        assert tau._pool is not None
-        tau._shutdown_pool()
 
     def test_verbose_true_does_not_break_run(self, g):
         result = _run(g, verbose=True)
         assert isinstance(result, ig.VertexClustering)
 
     def test_sim_sample_size_none_uses_all_nodes(self, g):
-        config = TauConfig(worker_count=1, sim_sample_size=None)
-        tau = TauClustering(g, population_size=4, max_generations=2, config=config)
+        config = TauConfig(population_size=4, max_generations=2, worker_count=1, sim_sample_size=None)
+        tau = TauClustering(g, config=config)
         assert tau.sim_indices is None
         assert isinstance(tau.run(), ig.VertexClustering)
 
     def test_sim_sample_size_larger_than_graph_uses_all_nodes(self, g):
-        config = TauConfig(worker_count=1, sim_sample_size=10_000)
-        tau = TauClustering(g, population_size=4, max_generations=2, config=config)
+        config = TauConfig(population_size=4, max_generations=2, worker_count=1, sim_sample_size=10_000)
+        tau = TauClustering(g, config=config)
         # graph has 10 nodes, sample_size=10_000 > 10 → None (all nodes)
         assert tau.sim_indices is None
 
     def test_sim_sample_size_smaller_than_graph_samples_subset(self):
         g_large = ig.Graph.Erdos_Renyi(50, 0.2, directed=False)
-        config = TauConfig(worker_count=1, sim_sample_size=5, random_seed=0)
-        tau = TauClustering(g_large, population_size=4, max_generations=2, config=config)
+        config = TauConfig(population_size=4, max_generations=2, worker_count=1, sim_sample_size=5, random_seed=0)
+        tau = TauClustering(g_large, config=config)
         assert tau.sim_indices is not None
         assert len(tau.sim_indices) == 5
 
@@ -554,22 +526,10 @@ class TestEdgeCaseBehavior:
     def test_sample_fraction_range_very_small(self, g):
         assert isinstance(_run(g, sample_fraction_range=(0.01, 0.05)), ig.VertexClustering)
 
-    def test_default_edge_weight_large(self, g):
-        assert isinstance(_run(g, default_edge_weight=1e6), ig.VertexClustering)
-
-    def test_default_edge_weight_very_small(self, g):
-        assert isinstance(_run(g, default_edge_weight=1e-6), ig.VertexClustering)
-
     def test_immigrant_fraction_near_one(self, g):
         # Nearly all population replaced by immigrants each generation
         result = _run(g, population_size=6, max_generations=2, elite_fraction=0.01, immigrant_fraction=0.99)
         assert isinstance(result, ig.VertexClustering)
-
-    def test_worker_chunk_size_one(self, g):
-        assert isinstance(_run(g, worker_chunk_size=1), ig.VertexClustering)
-
-    def test_worker_chunk_size_larger_than_population(self, g):
-        assert isinstance(_run(g, population_size=4, worker_chunk_size=1000), ig.VertexClustering)
 
     def test_networkx_graph_input(self):
         import networkx as nx

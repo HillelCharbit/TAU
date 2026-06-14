@@ -16,7 +16,11 @@ class TauConfig:
     """Hyper-parameters controlling the TAU evolutionary clustering algorithm."""
 
     population_size: int = 60
-    max_generations: int = 500
+    max_generations: int = 20
+    resolution_parameter: float = 1.0
+    random_seed: Optional[int] = None
+    verbose: bool = False
+    n_iterations: int = 3
     worker_count: Optional[int] = None
     elite_fraction: float = 0.1
     immigrant_fraction: float = 0.15
@@ -25,18 +29,14 @@ class TauConfig:
     stopping_generations: int = 10
     stopping_jaccard: float = 0.98
     sim_sample_size: Optional[int] = 20_000
-    n_iterations: int = 3
-    resolution_parameter: float = 1.0
-    weight_attribute: Optional[str] = "weight"
-    default_edge_weight: float = 1.0
     is_weighted: Optional[bool] = None
-    worker_chunk_size: Optional[int] = None
-    reuse_worker_pool: bool = True
     sample_fraction_range: Tuple[float, float] = (0.2, 0.9)
-    random_seed: Optional[int] = None
-    verbose: bool = False
 
     def __post_init__(self) -> None:
+        if self.population_size <= 0:
+            raise ValueError(f"population_size must be > 0, got {self.population_size}")
+        if self.max_generations <= 0:
+            raise ValueError(f"max_generations must be > 0, got {self.max_generations}")
         if not (0 < self.elite_fraction <= 1):
             raise ValueError(f"elite_fraction must be in (0, 1], got {self.elite_fraction}")
         if not (0 < self.immigrant_fraction <= 1):
@@ -53,8 +53,6 @@ class TauConfig:
             raise ValueError(f"stopping_generations must be > 0, got {self.stopping_generations}")
         if self.resolution_parameter <= 0:
             raise ValueError(f"resolution_parameter must be > 0, got {self.resolution_parameter}")
-        if self.default_edge_weight <= 0:
-            raise ValueError(f"default_edge_weight must be > 0, got {self.default_edge_weight}")
         low, high = self.sample_fraction_range
         if not (0 < low <= high <= 1):
             raise ValueError(
