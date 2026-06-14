@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import multiprocessing
-from typing import Iterable, Literal, Optional, Sequence, overload
+from typing import Iterable, Literal, Optional, Sequence, Union, overload
 import logging
 import time
 import threading
@@ -119,6 +119,9 @@ class _SequentialPool:
 
     def join(self) -> None:
         pass
+
+
+Pool = Union[LokyPool, _SequentialPool, "multiprocessing.pool.Pool"]
 
 
 def _overlap_memberships(memberships: Iterable[np.ndarray]) -> tuple[np.ndarray, int]:
