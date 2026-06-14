@@ -164,15 +164,6 @@ clustering = run_clustering(g, elite_fraction=0.2, stopping_generations=5)
 
 ---
 
-## Examples
-
-The `examples/` directory contains:
-
-- `example.graph` — a small adjacency-list graph to test with
-- `graph_gen.py` — generates a synthetic Erdős–Rényi graph in adjacency-list format
-
----
-
 ## Development
 
 ```bash
