@@ -255,9 +255,31 @@ class TauClustering:
                     convergence_streak = 0
             last_best_membership = best_partition.membership.copy()
 
-            if convergence_streak >= self.config.stopping_generations:
-                break
-            if generation >= self.config.max_generations:
+            should_stop = (
+                convergence_streak >= self.config.stopping_generations
+                or generation >= self.config.max_generations
+            )
+
+            if should_stop:
+                # Record the final generation's stats before exiting
+                gen_elapsed = time.perf_counter() - start_time
+                self._log(
+                    f"Generation {generation} Top fitness: {best_modularity:.5f}; Average fitness: "
+                    f"{avg_fitness:.5f}; Time per generation: {gen_elapsed:.3f}; "
+                    f"convergence: {convergence_streak}"
+                )
+                if track_stats and generation_stats is not None:
+                    generation_stats.append(
+                        {
+                            "generation": generation,
+                            "top_fitness": best_modularity,
+                            "average_fitness": avg_fitness,
+                            "time_per_generation": gen_elapsed,
+                            "convergence": convergence_streak,
+                            "elite_runtime": 0.0,
+                            "crossover_runtime": 0.0,
+                        }
+                    )
                 break
 
             population.sort(key=lambda part: part.fitness or float("-inf"), reverse=True)
@@ -496,7 +518,7 @@ class TauClustering:
         indices = np.arange(population_size)
         max_val = int(indices[-1]) if population_size else 0
         scaled = max_val + 1 - indices
-        weights = np.power(scaled.astype(np.int64), self.config.selection_power)
+        weights = np.power(scaled.astype(float), self.config.selection_power)
         weights_sum = weights.sum()
         if weights_sum == 0:
             return np.full(population_size, 1.0 / population_size)
