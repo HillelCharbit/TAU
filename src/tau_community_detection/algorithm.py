@@ -95,6 +95,11 @@ class _SequentialPool:
 Pool = Union[_LokyPool, _SequentialPool, "multiprocessing.pool.Pool"]
 
 
+def _probe_worker(_):
+    """No-op used to trigger loky worker startup and verify initializer succeeds."""
+    return True
+
+
 def _is_interactive_environment() -> bool:
     try:
         get_ipython()  # noqa: F821
@@ -116,7 +121,7 @@ def _main_has_guard() -> bool:
         return True
     src_file = getattr(main, "__file__", None)
     if src_file is None:
-        return True  # REPL, notebook, frozen
+        return True  # REPL, notebook, frozen — cannot parse, be permissive
     try:
         source = Path(src_file).read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(source)
@@ -151,22 +156,29 @@ def _choose_backend(requested_workers: int) -> tuple[str, int]:
     except ImportError:
         pass
 
-    # Without loky, multiprocessing workers re-import __main__ on spawn, causing
-    # a re-execution cascade. Guard detection or an interactive environment check
-    # gates whether it's safe to proceed in parallel.
-    if _is_interactive_environment() or not _main_has_guard():
+    # Guard present — safe to use multiprocessing regardless of environment.
+    if _main_has_guard():
+        return ("multiprocessing", requested_workers)
+
+    # No guard and no loky — warn and fall back to sequential.
+    if _is_interactive_environment():
         warnings.warn(
-            "Parallel execution requires loky when running without an "
-            "'if __name__ == \"__main__\":' guard. "
-            "This run will use 1 worker (sequential). "
+            "Running in an interactive environment without loky. "
+            "Falling back to sequential processing (1 worker). "
             "Install loky for parallel support: pip install loky",
             RuntimeWarning,
             stacklevel=4,
         )
-        return ("sequential", 1)
-
-    # Has guard — safe to use the platform default pool.
-    return ("multiprocessing", requested_workers)
+    else:
+        warnings.warn(
+            "Parallel execution requires loky or an "
+            "'if __name__ == \"__main__\":' guard in your script. "
+            "Falling back to sequential processing (1 worker). "
+            "Install loky for parallel support: pip install loky",
+            RuntimeWarning,
+            stacklevel=4,
+        )
+    return ("sequential", 1)
 
 
 def _overlap_memberships(memberships: Iterable[np.ndarray]) -> tuple[np.ndarray, int]:
@@ -482,8 +494,21 @@ class TauClustering:
 
         try:
             if backend == "loky":
-                self._pool = _LokyPool(actual_workers, initializer=init_worker, initargs=initargs)
-                self._log(f"Using loky pool ({actual_workers} workers)")
+                pool = _LokyPool(actual_workers, initializer=init_worker, initargs=initargs)
+                try:
+                    pool.map(_probe_worker, [0])
+                except Exception as exc:
+                    pool.close()
+                    pool.join()
+                    self._log(
+                        f"Loky workers failed to start ({type(exc).__name__}); "
+                        "falling back to sequential execution."
+                    )
+                    self._pool = _SequentialPool()
+                    actual_workers = 1
+                else:
+                    self._pool = pool
+                    self._log(f"Using loky pool ({actual_workers} workers)")
             elif backend == "multiprocessing":
                 self._pool = multiprocessing.Pool(
                     actual_workers, initializer=init_worker, initargs=initargs

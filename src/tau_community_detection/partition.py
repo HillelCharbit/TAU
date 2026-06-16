@@ -50,8 +50,8 @@ def init_worker(
     import os
     os.environ['MPLBACKEND'] = 'Agg'
     
-    from .graph import load_graph_worker
-    
+    from tau_community_detection.graph import load_graph_worker
+
     graph = load_graph_worker(graph_path, default_weight=default_weight, is_weighted=is_weighted)
     
     # Derive worker seed from rank
