@@ -6,7 +6,6 @@ that requires minimal configuration while maintaining full algorithmic control.
 from __future__ import annotations
 
 from typing import Optional, Union
-import warnings
 
 import igraph as ig
 import networkx as nx
@@ -54,7 +53,8 @@ def run_clustering(
         Number of Leiden algorithm iterations per fitness evaluation.
 
     worker_count : int, optional
-        Number of parallel workers. If None, defaults to 1. Set to 1 to force
+        Number of parallel workers. If None, defaults to cpu_count() capped by
+        population_size + immigrant_count (via TauConfig). Set to 1 to force
         sequential processing (useful for debugging or interactive environments).
 
     population_size : int, default=60
@@ -92,24 +92,6 @@ def run_clustering(
 
     >>> clustering = run_clustering(g, resolution=0.8, random_seed=42, verbose=True)
     """
-    # Warn if running in Jupyter/IPython without loky
-    _worker_count = worker_count if worker_count is not None else 1
-    try:
-        get_ipython()  # noqa: F821 - only defined in interactive environments
-        try:
-            from loky.process_executor import LokyProcessPoolExecutor  # noqa: F401
-        except ImportError:
-            warnings.warn(
-                "Running in an interactive environment without loky. "
-                "Falling back to sequential processing. "
-                "Install loky for parallel support: pip install loky",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            _worker_count = 1
-    except NameError:
-        pass  # not in an interactive environment
-
     config = TauConfig(
         population_size=population_size,
         max_generations=max_generations,
@@ -117,7 +99,7 @@ def run_clustering(
         resolution=resolution,
         random_seed=random_seed,
         verbose=verbose,
-        worker_count=_worker_count,
+        worker_count=worker_count,
     )
 
     return TauClustering(graph, config=config).run()

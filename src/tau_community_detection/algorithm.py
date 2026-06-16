@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import multiprocessing
 from typing import Iterable, Literal, Optional, Sequence, Union, overload
-import logging
 import time
 import sys
 import warnings
@@ -26,19 +25,20 @@ from .partition import (
 )
 
 _CROSSOVER_PROBABILITY = 0.5
-_logger = logging.getLogger(__name__)
 
 
-# LokyPool wrapper: use loky executor when available to avoid importing
-# user's __main__ module in spawned worker processes (helps on Windows).
-class LokyPool:
+# ---------------------------------------------------------------------------
+# Pool helpers
+# ---------------------------------------------------------------------------
+
+class _LokyPool:
+    """Thin Pool-like wrapper around loky.ProcessPoolExecutor."""
+
     def __init__(self, processes, initializer=None, initargs=()):
-        try:
-            from loky.process_executor import LokyProcessPoolExecutor
-        except Exception as exc:
-            raise ImportError("loky unavailable") from exc
-        # Loky supports initializer/initargs similar to multiprocessing
-        self._executor = LokyProcessPoolExecutor(max_workers=processes, initializer=initializer, initargs=initargs)
+        from loky import ProcessPoolExecutor
+        self._executor = ProcessPoolExecutor(
+            max_workers=processes, initializer=initializer, initargs=initargs
+        )
 
     def map(self, func, iterable, chunksize: int = 1):
         return list(self._executor.map(func, iterable))
@@ -47,11 +47,10 @@ class LokyPool:
         futures = [self._executor.submit(func, item) for item in iterable]
 
         class _AsyncResult:
-            def __init__(self, futures):
-                self._futures = futures
-
+            def __init__(self, fs):
+                self._fs = fs
             def get(self, timeout=None):
-                return [f.result(timeout) for f in self._futures]
+                return [f.result(timeout) for f in self._fs]
 
         return _AsyncResult(futures)
 
@@ -68,22 +67,13 @@ class LokyPool:
             pass
 
 
-def _is_interactive_environment() -> bool:
-    """Detect if running in Jupyter, IPython, or similar interactive environment."""
-    try:
-        get_ipython()  # noqa: F821
-        return True
-    except NameError:
-        return False
-
-
 class _SequentialPool:
-    """Lightweight stand-in when multiprocessing pools cannot be created."""
+    """Lightweight stand-in when parallel execution is unavailable."""
 
     def __init__(self, *args, **kwargs):
         pass
 
-    def map(self, func, iterable, chunksize: int = 1):  # noqa: D401 - simple sequential map
+    def map(self, func, iterable, chunksize: int = 1):
         return [func(item) for item in iterable]
 
     def map_async(self, func, iterable, chunksize: int = 1):
@@ -102,7 +92,81 @@ class _SequentialPool:
         pass
 
 
-Pool = Union[LokyPool, _SequentialPool, "multiprocessing.pool.Pool"]
+Pool = Union[_LokyPool, _SequentialPool, "multiprocessing.pool.Pool"]
+
+
+def _is_interactive_environment() -> bool:
+    try:
+        get_ipython()  # noqa: F821
+        return True
+    except NameError:
+        return False
+
+
+def _main_has_guard() -> bool:
+    """True if __main__ has ``if __name__ == '__main__':`` or if we cannot tell.
+
+    Never probes by spawning — REPL / notebook / frozen / unparseable all
+    return True so we do not block the user unnecessarily.
+    """
+    import ast
+    from pathlib import Path
+    main = sys.modules.get("__main__")
+    if main is None:
+        return True
+    src_file = getattr(main, "__file__", None)
+    if src_file is None:
+        return True  # REPL, notebook, frozen
+    try:
+        source = Path(src_file).read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(source)
+    except Exception:
+        return True
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)):
+            continue
+        test = node.test
+        if len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq) and len(test.comparators) == 1:
+            def _val(n):
+                if isinstance(n, ast.Name): return n.id
+                if isinstance(n, ast.Constant) and isinstance(n.value, str): return n.value
+            if {_val(test.left), _val(test.comparators[0])} == {"__name__", "__main__"}:
+                return True
+    return False
+
+
+def _choose_backend(requested_workers: int) -> tuple[str, int]:
+    """Return *(backend, worker_count)* without starting any process.
+
+    ``backend`` is one of ``'loky'`` | ``'multiprocessing'`` | ``'sequential'``.
+    Emits ``RuntimeWarning`` when degrading from the requested parallelism.
+    """
+    if requested_workers <= 1:
+        return ("sequential", 1)
+
+    # loky: cloudpickle serialisation, never re-imports __main__.
+    try:
+        import loky  # noqa: F401
+        return ("loky", requested_workers)
+    except ImportError:
+        pass
+
+    # Without loky, multiprocessing workers re-import __main__ on spawn, causing
+    # a re-execution cascade. Guard detection or an interactive environment check
+    # gates whether it's safe to proceed in parallel.
+    if _is_interactive_environment() or not _main_has_guard():
+        warnings.warn(
+            "Parallel execution requires loky when running without an "
+            "'if __name__ == \"__main__\":' guard. "
+            "This run will use 1 worker (sequential). "
+            "Install loky for parallel support: pip install loky",
+            RuntimeWarning,
+            stacklevel=4,
+        )
+        return ("sequential", 1)
+
+    # Has guard — safe to use the platform default pool.
+    return ("multiprocessing", requested_workers)
 
 
 def _overlap_memberships(memberships: Iterable[np.ndarray]) -> tuple[np.ndarray, int]:
@@ -336,7 +400,7 @@ class TauClustering:
 
     def _log(self, message: str) -> None:
         if self.config.verbose:
-            _logger.info(message)
+            print(message, flush=True)
 
     
     def _create_population(self, pool: Pool, size: int, chunk_size: int) -> list[Partition]:
@@ -404,56 +468,37 @@ class TauClustering:
         if self._pool is not None and self._pool_processes == worker_count:
             return self._pool
         self._shutdown_pool()
-        
+
         initargs = (
-            self._graph_path,  # always a path now
+            self._graph_path,
             self.config.n_iterations,
             self.config.resolution,
             self._resolved_is_weighted,
             1.0,
             self.config.random_seed,
         )
-        
-        # Attempt parallel execution
-        if worker_count > 1:
-            try:
-                # Prefer loky-based pool to avoid re-importing user's __main__ on spawn
-                try:
-                    self._pool = LokyPool(worker_count, initializer=init_worker, initargs=initargs)
-                    self._pool_processes = worker_count
-                    return self._pool
-                except ImportError:
-                    # loky not available; fall back to multiprocessing spawn pool
-                    self._pool = multiprocessing.get_context("spawn").Pool(
-                        worker_count, initializer=init_worker, initargs=initargs
-                    )
-                    self._pool_processes = worker_count
-                    return self._pool
-            except (PermissionError, RuntimeError, ValueError, OSError) as exc:
-                # Common failures in Windows/Jupyter/macOS interactive environments
-                if _is_interactive_environment():
-                    warnings.warn(
-                        "Parallel execution unavailable in interactive environment. "
-                        "For Jupyter on Windows, consider:\n"
-                        "  1. Using 'if __name__ == \"__main__\":' in scripts\n"
-                        "  2. Installing loky: pip install loky\n"
-                        "  3. Running with worker_count=1\n"
-                        "Falling back to sequential processing.",
-                        RuntimeWarning,
-                        stacklevel=3,
-                    )
-                else:
-                    self._log(f"Multiprocessing pool creation failed: {exc}. Falling back to sequential execution.")
 
-                # Fall back to sequential execution
+        backend, actual_workers = _choose_backend(worker_count)
+
+        try:
+            if backend == "loky":
+                self._pool = _LokyPool(actual_workers, initializer=init_worker, initargs=initargs)
+                self._log(f"Using loky pool ({actual_workers} workers)")
+            elif backend == "multiprocessing":
+                self._pool = multiprocessing.Pool(
+                    actual_workers, initializer=init_worker, initargs=initargs
+                )
+                self._log(f"Using multiprocessing pool ({actual_workers} workers)")
+            else:
                 self._pool = _SequentialPool()
-                self._pool_processes = 1
-                return self._pool
+                self._log("Using sequential execution (1 worker)")
+                actual_workers = 1
+        except Exception as exc:
+            self._log(f"Pool creation failed ({exc}); falling back to sequential execution.")
+            self._pool = _SequentialPool()
+            actual_workers = 1
 
-        # Single worker requested
-        self._log("Using sequential execution (1 worker)")
-        self._pool = _SequentialPool()
-        self._pool_processes = 1
+        self._pool_processes = actual_workers
         return self._pool
 
     def _shutdown_pool(self) -> None:

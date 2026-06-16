@@ -185,7 +185,84 @@ def main() -> None:
             cwd=str(work_dir),
             env=env,
         )
-        sys.exit(result.returncode)
+        if result.returncode != 0:
+            sys.exit(result.returncode)
+
+        print("\nRunning notebook smoke check (with loky)...\n")
+        _run([uv, "pip", "install", "--python", str(venv_python), "nbconvert", "ipykernel", "loky"])
+        notebook_src = REPO_ROOT / "scripts" / "smoke_notebook.ipynb"
+        notebook_dst = work_dir / "smoke_notebook.ipynb"
+        notebook_dst.write_bytes(notebook_src.read_bytes())
+        notebook_env = {
+            **env,
+            "JUPYTER_CONFIG_DIR": str(tmp / "jupyter_config"),
+            "JUPYTER_DATA_DIR": str(tmp / "jupyter_data"),
+        }
+        _run(
+            [
+                str(venv_python), "-m", "jupyter", "nbconvert",
+                "--to", "notebook",
+                "--execute",
+                "--ExecutePreprocessor.timeout=120",
+                str(notebook_dst),
+            ],
+            cwd=work_dir,
+            env=notebook_env,
+        )
+        print("PASS  notebook (loky active, no warning)")
+
+        # --- Cascade gate: unguarded script + loky shadowed → sentinel once, warns ---
+        print("\nRunning cascade gate (loky shadowed)...\n")
+        shadow_dir = tmp / "loky_shadow"
+        shadow_dir.mkdir()
+        (shadow_dir / "loky.py").write_text('raise ImportError("loky shadowed")\n')
+
+        unguarded = work_dir / "cascade_check.py"
+        unguarded.write_text(
+            "import igraph as ig\n"
+            "from tau_community_detection import run_clustering\n"
+            "import warnings\n"
+            "warnings.simplefilter('always')\n"
+            "SENTINEL = 'CASCADE_GATE_RAN'\n"
+            "print(SENTINEL, flush=True)\n"
+            "result = run_clustering(\n"
+            "    ig.Graph.Famous('Petersen'),\n"
+            "    population_size=6, max_generations=2, worker_count=4,\n"
+            ")\n"
+            "assert result is not None\n"
+        )
+        cascade_env = {
+            **env,
+            "PYTHONPATH": str(shadow_dir),
+        }
+        cascade_result = subprocess.run(
+            [str(venv_python), str(unguarded)],
+            capture_output=True,
+            text=True,
+            cwd=str(work_dir),
+            env=cascade_env,
+        )
+        if cascade_result.returncode != 0:
+            print(f"FAIL  cascade gate exited {cascade_result.returncode}", file=sys.stderr)
+            print(cascade_result.stdout, file=sys.stderr)
+            print(cascade_result.stderr, file=sys.stderr)
+            sys.exit(1)
+        sentinel_count = cascade_result.stdout.count("CASCADE_GATE_RAN")
+        if sentinel_count != 1:
+            print(
+                f"FAIL  sentinel appeared {sentinel_count} times (cascade detected)",
+                file=sys.stderr,
+            )
+            print(cascade_result.stdout, file=sys.stderr)
+            sys.exit(1)
+        combined = cascade_result.stdout + cascade_result.stderr
+        if "loky" not in combined.lower() and "sequential" not in combined.lower():
+            print("FAIL  no warning about loky/sequential emitted", file=sys.stderr)
+            sys.exit(1)
+        print("PASS  cascade gate (sentinel once, warning emitted)")
+
+        print("\nAll checks passed.")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

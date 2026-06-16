@@ -39,12 +39,15 @@ def _run_clustering(graph, *, config_override: dict | None = None) -> np.ndarray
 
 
 def test_run_clustering_interactive_fallback_does_not_duplicate_worker_count(monkeypatch):
+    # Interactive fallback is now handled by _choose_backend inside algorithm.py,
+    # not by api.py. api.py passes worker_count through unchanged; verify it does
+    # not inject a duplicate kwarg that would cause TauConfig to receive it twice.
+    import tau_community_detection.algorithm as alg
     graph = nx.path_graph(4)
     captured = {}
 
-    monkeypatch.setattr(api, "get_ipython", lambda: object(), raising=False)
+    monkeypatch.setattr(alg, "_is_interactive_environment", lambda: True)
     monkeypatch.setitem(sys.modules, "loky", None)
-    monkeypatch.setitem(sys.modules, "loky.process_executor", None)
 
     class _StubConfig:
         def __init__(self, **kwargs):
@@ -62,7 +65,8 @@ def test_run_clustering_interactive_fallback_does_not_duplicate_worker_count(mon
     monkeypatch.setattr(api, "TauClustering", _StubClustering)
 
     assert api.run_clustering(graph) == "ok"
-    assert captured["worker_count"] == 1
+    # worker_count flows through to TauConfig as-is (None = use TauConfig default)
+    assert captured.get("worker_count") is None
 
 
 def test_unweighted_override_forces_equal_weights():
