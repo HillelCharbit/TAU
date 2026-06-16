@@ -42,3 +42,4 @@ test_mp.py
 # Research / experiments
 experiments/
 uv.lock
+scripts/test.py
