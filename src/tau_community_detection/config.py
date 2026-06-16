@@ -17,7 +17,7 @@ class TauConfig:
 
     population_size: int = 60
     max_generations: int = 20
-    resolution_parameter: float = 1.0
+    resolution: float = 1.0
     random_seed: Optional[int] = None
     verbose: bool = False
     n_iterations: int = 3
@@ -51,8 +51,8 @@ class TauConfig:
             raise ValueError(f"n_iterations must be > 0, got {self.n_iterations}")
         if self.stopping_generations <= 0:
             raise ValueError(f"stopping_generations must be > 0, got {self.stopping_generations}")
-        if self.resolution_parameter <= 0:
-            raise ValueError(f"resolution_parameter must be > 0, got {self.resolution_parameter}")
+        if self.resolution <= 0:
+            raise ValueError(f"resolution must be > 0, got {self.resolution}")
         low, high = self.sample_fraction_range
         if not (0 < low <= high <= 1):
             raise ValueError(

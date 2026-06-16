@@ -137,15 +137,15 @@ class TestTauConfigValidation:
         with pytest.raises(ValueError, match="stopping_generations"):
             TauConfig(stopping_generations=-10)
 
-    # --- resolution_parameter ---
+    # --- resolution ---
 
-    def test_resolution_parameter_zero_raises(self):
-        with pytest.raises(ValueError, match="resolution_parameter"):
-            TauConfig(resolution_parameter=0.0)
+    def test_resolution_zero_raises(self):
+        with pytest.raises(ValueError, match="resolution"):
+            TauConfig(resolution=0.0)
 
-    def test_resolution_parameter_negative_raises(self):
-        with pytest.raises(ValueError, match="resolution_parameter"):
-            TauConfig(resolution_parameter=-1.0)
+    def test_resolution_negative_raises(self):
+        with pytest.raises(ValueError, match="resolution"):
+            TauConfig(resolution=-1.0)
 
     # --- sample_fraction_range ---
 
@@ -207,11 +207,11 @@ class TestTauConfigBoundaryValues:
     def test_selection_power_very_large(self):
         assert TauConfig(selection_power=1000).selection_power == 1000
 
-    def test_resolution_parameter_very_small(self):
-        assert TauConfig(resolution_parameter=1e-9).resolution_parameter == pytest.approx(1e-9)
+    def test_resolution_very_small(self):
+        assert TauConfig(resolution=1e-9).resolution == pytest.approx(1e-9)
 
-    def test_resolution_parameter_very_large(self):
-        assert TauConfig(resolution_parameter=1000.0).resolution_parameter == 1000.0
+    def test_resolution_very_large(self):
+        assert TauConfig(resolution=1000.0).resolution == 1000.0
 
     def test_sample_fraction_range_low_equals_high(self):
         assert TauConfig(sample_fraction_range=(0.5, 0.5)).sample_fraction_range == (0.5, 0.5)
@@ -230,7 +230,7 @@ class TestTauConfigBoundaryValues:
         """Default TauConfig must pass its own validation."""
         cfg = TauConfig()
         assert cfg.elite_fraction == 0.1
-        assert cfg.resolution_parameter == 1.0
+        assert cfg.resolution == 1.0
 
 
 # ===========================================================================
@@ -256,9 +256,9 @@ class TestTauConfigTypeMisuse:
         with pytest.raises((TypeError, ValueError)):
             TauConfig(stopping_jaccard="0.5")
 
-    def test_resolution_parameter_string_raises(self):
+    def test_resolution_string_raises(self):
         with pytest.raises((TypeError, ValueError)):
-            TauConfig(resolution_parameter="1.0")
+            TauConfig(resolution="1.0")
 
     def test_worker_count_negative_is_silently_safe(self):
         """Negative worker_count has no validation but resolves to 1 safely."""
@@ -416,12 +416,12 @@ class TestHyperparameterBehavior:
         _, stats = _run_with_stats(g, max_generations=3, stopping_jaccard=1.0, stopping_generations=999)
         assert len(stats) == 3
 
-    def test_resolution_parameter_high_produces_more_communities(self, g):
+    def test_resolution_high_produces_more_communities(self, g):
         # Average over seeds to account for stochasticity
         low_sizes, high_sizes = [], []
         for seed in range(6):
-            low_sizes.append(len(_run(g, population_size=6, max_generations=3, random_seed=seed, resolution_parameter=0.01)))
-            high_sizes.append(len(_run(g, population_size=6, max_generations=3, random_seed=seed, resolution_parameter=20.0)))
+            low_sizes.append(len(_run(g, population_size=6, max_generations=3, random_seed=seed, resolution=0.01)))
+            high_sizes.append(len(_run(g, population_size=6, max_generations=3, random_seed=seed, resolution=20.0)))
         assert np.mean(high_sizes) >= np.mean(low_sizes)
 
     def test_n_iterations_one_valid(self, g):

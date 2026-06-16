@@ -13,7 +13,7 @@ import numpy as np
 # Global worker state
 _GRAPH: Optional[ig.Graph] = None
 _n_iterations: int = 3
-_resolution_parameter: float = 1.0
+_resolution: float = 1.0
 _WEIGHTS: Optional[list[float]] = None
 _RNG: Optional[np.random.Generator] = None
 
@@ -23,14 +23,14 @@ MEMBERSHIP_DTYPE = np.int32
 def configure_main(
     graph: ig.Graph,
     n_iterations: int,
-    resolution_parameter: float,
+    resolution: float,
     seed: Optional[int] = None,
 ) -> None:
     """Configure state for main process."""
-    global _GRAPH, _n_iterations, _resolution_parameter, _WEIGHTS, _RNG
+    global _GRAPH, _n_iterations, _resolution, _WEIGHTS, _RNG
     _GRAPH = graph
     _n_iterations = n_iterations
-    _resolution_parameter = resolution_parameter
+    _resolution = resolution
     _WEIGHTS = list(graph.es["weight"]) if "weight" in graph.es.attributes() else None
     _RNG = np.random.default_rng(seed)
     # igraph uses Python's global random module by default. Seeding it makes
@@ -41,7 +41,7 @@ def configure_main(
 def init_worker(
     graph_path: str,
     n_iterations: int,
-    resolution_parameter: float,
+    resolution: float,
     is_weighted: bool,
     default_weight: float,
     seed: Optional[int],
@@ -63,7 +63,7 @@ def init_worker(
     configure_main(
         graph,
         n_iterations,
-        resolution_parameter,
+        resolution,
         None if seed is None else seed + worker_rank,
     )
 
@@ -173,7 +173,7 @@ class Partition:
         sub_nodes = [vertex.index for vertex in subgraph.vs]
         sub_partition = subgraph.community_leiden(
             objective_function="modularity",
-            resolution_parameter=_resolution_parameter,
+            resolution=_resolution,
             weights=_resolve_weights(subgraph),
         )
         local_membership = np.asarray(sub_partition.membership, dtype=MEMBERSHIP_DTYPE)
@@ -190,7 +190,7 @@ class Partition:
             objective_function="modularity",
             initial_membership=self.membership,
             n_iterations=_n_iterations,
-            resolution_parameter=_resolution_parameter,
+            resolution=_resolution,
             weights=_resolve_weights(graph),
         )
         self.membership = np.asarray(partition.membership, dtype=MEMBERSHIP_DTYPE)

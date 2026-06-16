@@ -1,9 +1,15 @@
 """Integration-flavoured tests for TauClustering weighting behaviour."""
 from __future__ import annotations
 
+import sys
+
+import igraph as ig
 import networkx as nx
 import numpy as np
+import pytest
 
+import tau_community_detection as tau
+import tau_community_detection.api as api
 from tau_community_detection import TauClustering, TauConfig
 
 
@@ -30,6 +36,33 @@ def _run_clustering(graph, *, config_override: dict | None = None) -> np.ndarray
     tau = TauClustering(graph, config=TauConfig(**config_kwargs))
     vertex_clustering = tau.run()
     return np.asarray(vertex_clustering.membership)
+
+
+def test_run_clustering_interactive_fallback_does_not_duplicate_worker_count(monkeypatch):
+    graph = nx.path_graph(4)
+    captured = {}
+
+    monkeypatch.setattr(api, "get_ipython", lambda: object(), raising=False)
+    monkeypatch.setitem(sys.modules, "loky", None)
+    monkeypatch.setitem(sys.modules, "loky.process_executor", None)
+
+    class _StubConfig:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    class _StubClustering:
+        def __init__(self, graph, config):
+            self.graph = graph
+            self.config = config
+
+        def run(self):
+            return "ok"
+
+    monkeypatch.setattr(api, "TauConfig", _StubConfig)
+    monkeypatch.setattr(api, "TauClustering", _StubClustering)
+
+    assert api.run_clustering(graph) == "ok"
+    assert captured["worker_count"] == 1
 
 
 def test_unweighted_override_forces_equal_weights():

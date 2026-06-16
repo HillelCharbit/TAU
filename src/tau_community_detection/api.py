@@ -19,7 +19,7 @@ def run_clustering(
     graph: Union[ig.Graph, nx.Graph, str],
     population_size: int = 60,
     max_generations: int = 20,
-    resolution_parameter: float = 1.0,
+    resolution: float = 1.0,
     random_seed: Optional[int] = None,
     verbose: bool = False,
     n_iterations: int = 3,
@@ -39,7 +39,7 @@ def run_clustering(
         Edge weights are detected automatically. To override, pass
         ``TauConfig(is_weighted=True/False)`` via ``**config_kwargs``.
 
-    resolution_parameter : float, default=1.0
+    resolution : float, default=1.0
         Resolution parameter for community detection. Higher values lead to smaller,
         more fragmented communities. Typical range: [0.5, 2.0].
 
@@ -101,7 +101,7 @@ def run_clustering(
 
     >>> clustering = run_clustering(
     ...     g,
-    ...     resolution_parameter=0.8,
+    ...     resolution=0.8,
     ...     random_seed=42,
     ...     verbose=True,
     ...     stopping_generations=5,
@@ -125,12 +125,17 @@ def run_clustering(
         pass  # not in an interactive environment
 
     # Step 2: Build TauConfig
+    config_kwargs = dict(config_kwargs)
+    if worker_count is not None:
+        config_kwargs["worker_count"] = worker_count
+    elif "worker_count" not in config_kwargs:
+        config_kwargs.setdefault("worker_count", 1)
+
     config = TauConfig(
         population_size=population_size,
         max_generations=max_generations,
-        worker_count=worker_count,
         n_iterations=n_iterations,
-        resolution_parameter=resolution_parameter,
+        resolution=resolution,
         random_seed=random_seed,
         verbose=verbose,
         **config_kwargs,

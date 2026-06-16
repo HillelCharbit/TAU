@@ -159,7 +159,7 @@ class TauClustering:
         configure_main(
             self.graph,
             self.config.n_iterations,
-            self.config.resolution_parameter,
+            self.config.resolution,
             self.config.random_seed,
         )
         
@@ -408,7 +408,7 @@ class TauClustering:
         initargs = (
             self._graph_path,  # always a path now
             self.config.n_iterations,
-            self.config.resolution_parameter,
+            self.config.resolution,
             self._resolved_is_weighted,
             1.0,
             self.config.random_seed,
