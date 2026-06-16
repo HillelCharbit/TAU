@@ -24,7 +24,6 @@ def run_clustering(
     verbose: bool = False,
     n_iterations: int = 3,
     worker_count: Optional[int] = None,
-    **config_kwargs,
 ) -> ig.VertexClustering:
     """Find community structure using TAU evolutionary clustering.
 
@@ -32,12 +31,14 @@ def run_clustering(
     for seamless adoption. Automatically handles multiprocessing with graceful
     fallback to sequential processing in interactive environments.
 
+    For fine-grained control over the genetic algorithm internals, use
+    ``TauClustering`` with a ``TauConfig`` directly.
+
     Parameters
     ----------
     graph : ig.Graph, nx.Graph, or str
         Input graph. Can be an igraph.Graph, networkx.Graph, or path to a graph file.
-        Edge weights are detected automatically. To override, pass
-        ``TauConfig(is_weighted=True/False)`` via ``**config_kwargs``.
+        Edge weights are detected automatically.
 
     resolution : float, default=1.0
         Resolution parameter for community detection. Higher values lead to smaller,
@@ -53,7 +54,7 @@ def run_clustering(
         Number of Leiden algorithm iterations per fitness evaluation.
 
     worker_count : int, optional
-        Number of parallel workers. If None, uses CPU count. Set to 1 to force
+        Number of parallel workers. If None, defaults to 1. Set to 1 to force
         sequential processing (useful for debugging or interactive environments).
 
     population_size : int, default=60
@@ -61,16 +62,6 @@ def run_clustering(
 
     max_generations : int, default=20
         Maximum GA generations.
-
-    **config_kwargs
-        Additional TauConfig parameters for fine-tuning without crowding the
-        function signature. Common overrides:
-
-        - stopping_generations (int, default=10): Generations without improvement to stop.
-        - stopping_jaccard (float, default=0.98): Similarity threshold for early stopping.
-        - elite_fraction (float, default=0.1): Fraction of best solutions preserved.
-        - selection_power (int, default=5): Sharpness of selection pressure.
-        - immigrant_fraction (float, default=0.15): Fraction of random immigrants per gen.
 
     Returns
     -------
@@ -99,15 +90,10 @@ def run_clustering(
 
     With custom parameters:
 
-    >>> clustering = run_clustering(
-    ...     g,
-    ...     resolution=0.8,
-    ...     random_seed=42,
-    ...     verbose=True,
-    ...     stopping_generations=5,
-    ... )
+    >>> clustering = run_clustering(g, resolution=0.8, random_seed=42, verbose=True)
     """
-    # Step 1: Warn if running in Jupyter/IPython without loky
+    # Warn if running in Jupyter/IPython without loky
+    _worker_count = worker_count if worker_count is not None else 1
     try:
         get_ipython()  # noqa: F821 - only defined in interactive environments
         try:
@@ -120,16 +106,9 @@ def run_clustering(
                 RuntimeWarning,
                 stacklevel=2,
             )
-            config_kwargs.setdefault("worker_count", 1)
+            _worker_count = 1
     except NameError:
         pass  # not in an interactive environment
-
-    # Step 2: Build TauConfig
-    config_kwargs = dict(config_kwargs)
-    if worker_count is not None:
-        config_kwargs["worker_count"] = worker_count
-    elif "worker_count" not in config_kwargs:
-        config_kwargs.setdefault("worker_count", 1)
 
     config = TauConfig(
         population_size=population_size,
@@ -138,10 +117,9 @@ def run_clustering(
         resolution=resolution,
         random_seed=random_seed,
         verbose=verbose,
-        **config_kwargs,
+        worker_count=_worker_count,
     )
 
-    # Step 3: Run clustering
     return TauClustering(graph, config=config).run()
 
 

@@ -61,7 +61,7 @@ print(f"Communities: {len(clustering)},  Modularity: {clustering.modularity:.4f}
 # Override only the knobs you care about
 clustering = run_clustering(
     g,
-    resolution_parameter=0.8,
+    resolution=0.8,
     random_seed=42,
     verbose=True,
     population_size=100,
@@ -91,7 +91,7 @@ from tau_community_detection import TauClustering, TauConfig
 config = TauConfig(
     population_size=60,
     max_generations=20,
-    resolution_parameter=1.0,
+    resolution=1.0,
     elite_fraction=0.15,
     immigrant_fraction=0.2,
     stopping_generations=10,
@@ -147,17 +147,21 @@ All hyperparameters live on `TauConfig`. Every field is validated on constructio
 | `stopping_generations` | 10 | > 0 | Generations without improvement before early stopping |
 | `stopping_jaccard` | 0.98 | [0, 1] | Similarity threshold that counts as "no improvement" |
 | `n_iterations` | 3 | > 0 | Leiden iterations per fitness evaluation |
-| `resolution_parameter` | 1.0 | > 0 | Leiden resolution — higher values produce more, smaller communities |
+| `resolution` | 1.0 | > 0 | Leiden resolution — higher values produce more, smaller communities |
 | `sample_fraction_range` | (0.2, 0.9) | 0 < low ≤ high ≤ 1 | Range for random subgraph sampling during population init |
 | `is_weighted` | `None` | bool or None | Override weight auto-detection (`None` = auto) |
 | `sim_sample_size` | 20 000 | int or None | Node sample size for Jaccard similarity (None = all nodes) |
 | `random_seed` | `None` | int or None | Seeds both numpy and igraph's Leiden RNG for fully deterministic results |
 | `verbose` | `False` | bool | Log progress to the standard Python logger |
 
-`run_clustering()` exposes the most common parameters directly. Any `TauConfig` field can also be passed as a keyword argument:
+`run_clustering()` exposes the most common parameters directly. For any other `TauConfig` field, use `TauClustering` with a `TauConfig` directly:
 
 ```python
-clustering = run_clustering(g, elite_fraction=0.2, stopping_generations=5)
+from tau_community_detection import TauClustering, TauConfig
+
+config = TauConfig(elite_fraction=0.2, stopping_generations=5)
+with TauClustering(g, config=config) as t:
+    clustering = t.run()
 ```
 
 ---
