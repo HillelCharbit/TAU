@@ -8,8 +8,6 @@ from pathlib import Path
 import igraph as ig
 import networkx as nx
 
-_TEMP_GRAPH_PATH: Path | None = None
-
 
 def load_graph(
     source: ig.Graph | nx.Graph | str,
@@ -51,6 +49,12 @@ def load_graph(
         _ensure_vertex_names(graph)
 
     else:
+        if not isinstance(source, str):
+            raise TypeError(
+                f"graph must be ig.Graph, nx.Graph, or a file path str; got {type(source).__name__}"
+            )
+        if not Path(source).is_file():
+            raise FileNotFoundError(f"Graph file not found: {source!r}")
         # String path - detect format and load
         if _is_adjlist_format(source):
             nx_graph = nx.read_adjlist(source)
@@ -165,15 +169,17 @@ def _preprocess_edgelist(path: str) -> str:
         return fd.name
 
 def _graph_to_temp_file(graph: ig.Graph) -> str:
-    """Write igraph to temp pickle file so workers can reload identical graph."""
-    global _TEMP_GRAPH_PATH
-    if _TEMP_GRAPH_PATH is not None:
-        _TEMP_GRAPH_PATH.unlink(missing_ok=True)
+    """Write igraph to temp pickle file so workers can reload identical graph.
+
+    Each file persists until process exit (cleaned via atexit). This is
+    intentional: eager deletion of a prior instance's file could race with
+    workers still reading it. Cost is one temp file per TauClustering instance.
+    """
     with tempfile.NamedTemporaryFile(suffix=".igraph", delete=False) as fd:
-        _TEMP_GRAPH_PATH = Path(fd.name)
-    atexit.register(lambda p=_TEMP_GRAPH_PATH: p.unlink(missing_ok=True))
-    graph.write_pickle(str(_TEMP_GRAPH_PATH))
-    return str(_TEMP_GRAPH_PATH)
+        path = Path(fd.name)
+    atexit.register(lambda p=path: p.unlink(missing_ok=True))
+    graph.write_pickle(str(path))
+    return str(path)
 
 
 def _ensure_vertex_names(graph: ig.Graph) -> None:

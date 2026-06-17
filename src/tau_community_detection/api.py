@@ -39,12 +39,20 @@ def run_clustering(
         Input graph. Can be an igraph.Graph, networkx.Graph, or path to a graph file.
         Edge weights are detected automatically.
 
+    population_size : int, default=60
+        Genetic algorithm population size.
+
+    max_generations : int, default=20
+        Maximum GA generations.
+
     resolution : float, default=1.0
         Resolution parameter for community detection. Higher values lead to smaller,
         more fragmented communities. Typical range: [0.5, 2.0].
 
     random_seed : int, optional
-        Seed for reproducibility. If None, results are non-deterministic.
+        Integer seed for the random number generator. For reproducible results,
+        also fix ``worker_count``; leaving it automatic ties results to
+        ``cpu_count()`` and may differ across machines.
 
     verbose : bool, default=False
         If True, print detailed progress logs.
@@ -57,12 +65,6 @@ def run_clustering(
         population_size + immigrant_count (via TauConfig). Set to 1 to force
         sequential processing (useful for debugging or interactive environments).
 
-    population_size : int, default=60
-        Genetic algorithm population size.
-
-    max_generations : int, default=20
-        Maximum GA generations.
-
     Returns
     -------
     ig.VertexClustering
@@ -72,11 +74,13 @@ def run_clustering(
     Raises
     ------
     TypeError
-        If graph is not ig.Graph, nx.Graph, or a valid file path.
+        If graph is not an ig.Graph, nx.Graph, or str.
+    FileNotFoundError
+        If graph is a path string that does not point to a file.
     ValueError
         If any hyperparameter is out of its valid range.
     RuntimeError
-        If TAU clustering fails to produce a valid solution.
+        Defensive guard; not reachable under normal configuration.
 
     Examples
     --------

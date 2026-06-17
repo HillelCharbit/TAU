@@ -26,7 +26,7 @@ def configure_main(
     resolution: float,
     seed: Optional[int] = None,
 ) -> None:
-    """Configure state for main process."""
+    """Configure state for the current process."""
     global _GRAPH, _n_iterations, _resolution, _WEIGHTS, _RNG
     _GRAPH = graph
     _n_iterations = n_iterations
@@ -47,19 +47,19 @@ def init_worker(
     seed: Optional[int],
 ) -> None:
     """Worker initializer — loads graph from path."""
-    import os
-    os.environ['MPLBACKEND'] = 'Agg'
-    
     from tau_community_detection.graph import load_graph_worker
 
     graph = load_graph_worker(graph_path, default_weight=default_weight, is_weighted=is_weighted)
     
-    # Derive worker seed from rank
+    # _identity is set by multiprocessing workers (rank = identity[0] - 1).
+    # Under loky (the preferred backend when available) it may be absent;
+    # rank 0 is a safe fallback — workers stay deterministic, diversity comes
+    # from random sampling rather than seed offset.
     worker_rank = 0
     proc = mp.current_process()
     if proc._identity:
         worker_rank = proc._identity[0] - 1
-    
+
     configure_main(
         graph,
         n_iterations,
@@ -78,7 +78,9 @@ def get_graph() -> ig.Graph:
 def get_rng() -> np.random.Generator:
     global _RNG
     if _RNG is None:
-        _RNG = np.random.default_rng()
+        raise RuntimeError(
+            "RNG not initialized in this process. Call configure_main or init_worker first."
+        )
     return _RNG
 
 
@@ -98,6 +100,7 @@ _dataclass_kwargs = {"slots": True} if sys.version_info >= (3, 10) else {}
 @dataclass(**_dataclass_kwargs)
 class Partition:
     """Represents a candidate clustering solution."""
+    # Uses dataclass for slots/repr but defines custom __init__ for initialization logic.
 
     membership: np.ndarray
     n_comms: int
@@ -125,11 +128,10 @@ class Partition:
         copy_membership: bool = False,
     ) -> "Partition":
         instance = cls.__new__(cls)
-        instance.membership = np.array(
-            membership,
-            dtype=MEMBERSHIP_DTYPE,
-            copy=copy_membership,
-        )
+        if copy_membership:
+            instance.membership = np.array(membership, dtype=MEMBERSHIP_DTYPE, copy=True)
+        else:
+            instance.membership = np.asarray(membership, dtype=MEMBERSHIP_DTYPE)
         instance._sample_fraction = sample_fraction
         instance.n_comms = int(n_comms)
         instance.fitness = fitness
@@ -195,7 +197,7 @@ class Partition:
         )
         self.membership = np.asarray(partition.membership, dtype=MEMBERSHIP_DTYPE)
         self.n_comms = int(self.membership.max()) + 1
-        self.fitness = float(partition.modularity)
+        self.fitness = float(partition.modularity) if partition.modularity is not None else float("-inf")
         return self
 
     def mutate(self) -> "Partition":
@@ -225,7 +227,9 @@ class Partition:
     ) -> None:
         subgraph = graph.subgraph(indices.tolist())
         new_assignment = np.asarray(
-            subgraph.community_leading_eigenvector(clusters=2).membership,
+            subgraph.community_leading_eigenvector(
+                clusters=2, weights=_resolve_weights(subgraph)
+            ).membership,
             dtype=MEMBERSHIP_DTYPE,
         )
         new_assignment = np.where(new_assignment == 0, comm_id, self.n_comms)
@@ -257,7 +261,7 @@ class Partition:
                 continue
             last = self.n_comms - 1
             membership[membership == comm1] = comm2
-            if comm1 != last and comm2 != last:
+            if comm1 != last:
                 membership[membership == last] = comm1
             self.n_comms = max(self.n_comms - 1, 1)
             break

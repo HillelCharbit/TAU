@@ -34,12 +34,9 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
-tests/proofread_filtered
 *.prof
 *_report.txt
-test_mp.py
 
 # Research / experiments
 experiments/
 uv.lock
-scripts/test.py

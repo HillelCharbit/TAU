@@ -8,5 +8,5 @@ from .config import TauConfig
 
 __all__ = ["run_clustering", "TauClustering", "TauConfig"]
 
-__version__ = "1.4.4"
+__version__ = "1.4.5"
 

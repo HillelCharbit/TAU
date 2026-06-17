@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import multiprocessing
+import multiprocessing.pool
 from typing import Iterable, Literal, Optional, Sequence, Union, overload
 import time
 import sys
@@ -92,20 +93,12 @@ class _SequentialPool:
         pass
 
 
-Pool = Union[_LokyPool, _SequentialPool, "multiprocessing.pool.Pool"]
+Pool = Union[_LokyPool, _SequentialPool, multiprocessing.pool.Pool]
 
 
 def _probe_worker(_):
     """No-op used to trigger loky worker startup and verify initializer succeeds."""
     return True
-
-
-def _is_interactive_environment() -> bool:
-    try:
-        get_ipython()  # noqa: F821
-        return True
-    except NameError:
-        return False
 
 
 def _main_has_guard() -> bool:
@@ -151,7 +144,7 @@ def _choose_backend(requested_workers: int) -> tuple[str, int]:
 
     # loky: cloudpickle serialisation, never re-imports __main__.
     try:
-        import loky  # noqa: F401
+        import loky  # noqa: F401  # type: ignore[import-not-found]
         return ("loky", requested_workers)
     except ImportError:
         pass
@@ -161,23 +154,13 @@ def _choose_backend(requested_workers: int) -> tuple[str, int]:
         return ("multiprocessing", requested_workers)
 
     # No guard and no loky — warn and fall back to sequential.
-    if _is_interactive_environment():
-        warnings.warn(
-            "Running in an interactive environment without loky. "
-            "Falling back to sequential processing (1 worker). "
-            "Install loky for parallel support: pip install loky",
-            RuntimeWarning,
-            stacklevel=4,
-        )
-    else:
-        warnings.warn(
-            "Parallel execution requires loky or an "
-            "'if __name__ == \"__main__\":' guard in your script. "
-            "Falling back to sequential processing (1 worker). "
-            "Install loky for parallel support: pip install loky",
-            RuntimeWarning,
-            stacklevel=4,
-        )
+    warnings.warn(
+        "Parallel execution requires loky (pip install loky) or, in scripts, "
+        "an 'if __name__ == \"__main__\":' guard. "
+        "Falling back to sequential processing (1 worker).",
+        RuntimeWarning,
+        stacklevel=4,
+    )
     return ("sequential", 1)
 
 
@@ -372,6 +355,9 @@ class TauClustering:
                     }
                 )
 
+        # Defensive: unreachable given TauConfig validation (population_size >= 1,
+        # max_generations >= 1), which guarantees the loop body executes and assigns
+        # best_partition. Kept as an explicit contract assertion.
         if best_partition is None:
             raise RuntimeError("TAU clustering failed to produce any solution.")
 
@@ -395,7 +381,7 @@ class TauClustering:
             )
             clustering_result._modularity_dirty = False
         if original_membership is not None:
-            clustering_result.original_membership = original_membership
+            clustering_result.original_membership = original_membership  # type: ignore[attr-defined]
         if track_stats and generation_stats is not None:
             return clustering_result, generation_stats
         return clustering_result
@@ -527,10 +513,11 @@ class TauClustering:
         return self._pool
 
     def _shutdown_pool(self) -> None:
-        if getattr(self, "_pool", None) is None:
+        pool = getattr(self, "_pool", None)
+        if pool is None:
             return
-        self._pool.close()
-        self._pool.join()
+        pool.close()
+        pool.join()
         self._pool = None
         self._pool_processes = None
 
