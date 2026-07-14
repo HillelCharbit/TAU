@@ -80,6 +80,58 @@ from tau_community_detection import run_clustering
 g = nx.erdos_renyi_graph(n=500, p=0.02, seed=0)
 clustering = run_clustering(g)
 ```
+### Scanpy / AnnData integration
+
+Install TAU with its optional Scanpy dependencies:
+
+```bash
+pip install "tau-community-detection[scanpy]"
+```
+
+TAU can cluster an existing Scanpy neighbor graph and store the results directly
+in an `AnnData` object:
+
+```python
+import scanpy as sc
+from tau_community_detection.tl import tau
+
+adata = sc.datasets.pbmc3k_processed()
+
+# Compute a neighbor graph if the AnnData object does not already contain one.
+if "connectivities" not in adata.obsp:
+    sc.pp.neighbors(adata)
+
+tau(
+    adata,
+    key_added="tau",
+    resolution=1.0,
+    random_state=42,
+    population_size=60,
+    max_generations=20,
+    worker_count=1,
+    verbose=True,
+)
+
+print(adata.obs["tau"])
+print(adata.uns["tau"]["modularity"])
+```
+
+The cluster assignments are stored as categorical values in
+`adata.obs["tau"]`. The parameters and resulting modularity are stored in
+`adata.uns["tau"]`.
+
+Custom Scanpy graphs can be selected with `neighbors_key` or `obsp`:
+
+```python
+tau(
+    adata,
+    neighbors_key="custom_neighbors",
+    key_added="tau_custom",
+)
+```
+
+The function also supports `copy=True`, explicit adjacency matrices, and
+weighted or unweighted graph clustering.
 
 ### Advanced usage with `TauClustering`
 
