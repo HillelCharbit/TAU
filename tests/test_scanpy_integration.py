@@ -80,6 +80,31 @@ def adata_blobs() -> AnnData:
 def _labels(adata: AnnData, key: str) -> np.ndarray:
     return adata.obs[key].astype(str).to_numpy()
 
+def _independent_modularity(
+    adata: AnnData,
+    key: str,
+) -> float:
+    """Calculate weighted modularity without relying on Scanpy's metrics API."""
+
+    connectivities = _get_connectivities(adata)
+    graph = _connectivities_to_igraph(
+        connectivities,
+        use_weights=True,
+    )
+
+    membership = pd.Categorical(adata.obs[key]).codes.tolist()
+    weights = (
+        graph.es["weight"]
+        if "weight" in graph.es.attributes()
+        else None
+    )
+
+    return float(
+        graph.modularity(
+            membership,
+            weights=weights,
+        )
+    )
 
 def _independent_metrics(
     adata: AnnData,
@@ -99,13 +124,7 @@ def _independent_metrics(
         "seed": seed,
         "resolution": resolution,
         "n_clusters": int(pd.Series(labels).nunique()),
-        "modularity": float(
-            sc.metrics.modularity(
-                adata,
-                labels=key,
-                mode="calculate",
-            )
-        ),
+        "modularity": _independent_modularity(adata, key),
         "ari_truth": float(adjusted_rand_score(truth, labels)),
         "nmi_truth": float(normalized_mutual_info_score(truth, labels)),
         "runtime_seconds": float(runtime_seconds),
@@ -376,12 +395,9 @@ def test_tau_stored_modularity_matches_independent_metric(
     )
 
     stored = float(adata_blobs.uns["tau_modularity"]["modularity"])
-    independent = float(
-        sc.metrics.modularity(
-            adata_blobs,
-            labels="tau_modularity",
-            mode="calculate",
-        )
+    independent = _independent_modularity(
+    adata_blobs,
+    "tau_modularity",
     )
 
     assert stored == pytest.approx(independent, abs=1e-8)
